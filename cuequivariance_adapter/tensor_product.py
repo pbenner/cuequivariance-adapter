@@ -8,10 +8,7 @@ import haiku as hk
 import jax.numpy as jnp
 from e3nn_jax import Irreps
 
-try:
-    from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
-except ImportError:  # Allows running as a standalone script from src/
-    from utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
+from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
 
 
 class TensorProduct(hk.Module):
@@ -28,12 +25,13 @@ class TensorProduct(hk.Module):
     ) -> None:
         super().__init__(name=name)
 
-        if shared_weights:
+        if internal_weights and not shared_weights:
             raise ValueError(
-                f"TensorProductCuex requires shared_weights=False. shared_weights={shared_weights}, internal_weights={internal_weights}"
+                'TensorProduct requires shared_weights=True when internal_weights=True'
             )
-        if internal_weights:
-            raise ValueError("TensorProductCuex requires internal_weights=False")
+
+        self.shared_weights = shared_weights
+        self.internal_weights = internal_weights
 
         self.irreps_in1_o3 = Irreps(irreps_in1)
         self.irreps_in2_o3 = Irreps(irreps_in2)
@@ -54,12 +52,55 @@ class TensorProduct(hk.Module):
         self,
         x1: jnp.ndarray,
         x2: jnp.ndarray,
-        weights: jnp.ndarray,
+        weights: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        if weights.shape[-1] != self.weight_numel:
-            raise ValueError(
-                f"Expected weights last dimension {self.weight_numel}, got {weights.shape[-1]}"
+        batch_size = x1.shape[0]
+
+        if self.internal_weights:
+            if weights is not None:
+                raise ValueError(
+                    'TensorProduct uses internal weights; weights argument must be None'
+                )
+            parameter = hk.get_parameter(
+                'weight',
+                shape=(1, self.weight_numel),
+                dtype=x1.dtype,
+                init=hk.initializers.RandomNormal(),
             )
+            weight_tensor = parameter
+        else:
+            if weights is None:
+                raise ValueError(
+                    'TensorProduct requires explicit weights when internal_weights=False'
+                )
+            weight_tensor = jnp.asarray(weights, dtype=x1.dtype)
+
+        if weight_tensor.ndim == 1:
+            weight_tensor = weight_tensor[jnp.newaxis, :]
+        elif weight_tensor.ndim != 2:
+            raise ValueError(
+                f'Weights must have rank 1 or 2, got rank {weight_tensor.ndim}'
+            )
+
+        if weight_tensor.shape[-1] != self.weight_numel:
+            raise ValueError(
+                f'Expected weights last dimension {self.weight_numel}, got {weight_tensor.shape[-1]}'
+            )
+
+        if self.shared_weights:
+            if weight_tensor.shape[0] not in (1, batch_size):
+                raise ValueError(
+                    'Shared weights require leading dimension 1 or equal to the batch size'
+                )
+            if weight_tensor.shape[0] == 1 and batch_size != 1:
+                weight_tensor = jnp.broadcast_to(
+                    weight_tensor, (batch_size, self.weight_numel)
+                )
+        else:
+            if weight_tensor.shape[0] != batch_size:
+                raise ValueError(
+                    'Unshared weights require leading dimension equal to the batch size'
+                )
 
         x1_ir_mul = mul_ir_to_ir_mul(x1, self.irreps_in1_o3)
         x2_ir_mul = mul_ir_to_ir_mul(x2, self.irreps_in2_o3)
@@ -76,14 +117,14 @@ class TensorProduct(hk.Module):
         )
         weight_rep = cuex.RepArray(
             self.weight_irreps,
-            weights,
+            weight_tensor,
             cue.ir_mul,
         )
 
         output_rep = cuex.equivariant_polynomial(
             self.descriptor,
             [weight_rep, x1_rep, x2_rep],
-            method="naive",
+            method='naive',
         )
 
         out_ir_mul = output_rep.array
@@ -108,7 +149,7 @@ class FullyConnectedTensorProduct(hk.Module):
 
         if internal_weights and not shared_weights:
             raise ValueError(
-                "FullyConnectedTensorProductCuex requires shared_weights=True when internal_weights=True"
+                'FullyConnectedTensorProduct requires shared_weights=True when internal_weights=True'
             )
 
         self.internal_weights = internal_weights
@@ -134,7 +175,7 @@ class FullyConnectedTensorProduct(hk.Module):
         self.internal_weight_rep = None
         if self.internal_weights:
             weights = hk.get_parameter(
-                "weight", (1, self.weight_numel), init=hk.initializers.RandomNormal()
+                'weight', (1, self.weight_numel), init=hk.initializers.RandomNormal()
             )
             self.internal_weight_rep = cuex.RepArray(
                 self.weight_irreps,
@@ -165,17 +206,17 @@ class FullyConnectedTensorProduct(hk.Module):
         if self.internal_weights:
             if weights is not None:
                 raise ValueError(
-                    "Weights must be None when internal weights are used in FullyConnectedTensorProduct"
+                    'Weights must be None when internal weights are used in FullyConnectedTensorProduct'
                 )
             weight_rep = self.internal_weight_rep
         else:
             if weights is None:
                 raise ValueError(
-                    "Weights must be provided when internal weights are not used"
+                    'Weights must be provided when internal weights are not used'
                 )
             if weights.shape[-1] != self.weight_numel:
                 raise ValueError(
-                    f"Expected weights last dimension {self.weight_numel}, got {weights.shape[-1]}"
+                    f'Expected weights last dimension {self.weight_numel}, got {weights.shape[-1]}'
                 )
             weight_rep = cuex.RepArray(
                 self.weight_irreps,
@@ -186,7 +227,7 @@ class FullyConnectedTensorProduct(hk.Module):
         output_rep = cuex.equivariant_polynomial(
             self.descriptor,
             [weight_rep, x1_rep, x2_rep],
-            method="naive",
+            method='naive',
         )
 
         out_ir_mul = output_rep.array
