@@ -68,6 +68,8 @@ class FullyConnectedTensorProduct(hk.Module):
         x2: jnp.ndarray,
         weights: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
+        batch_size = x1.shape[0]
+
         x1_ir_mul = mul_ir_to_ir_mul(x1, self.irreps_in1_o3)
         x2_ir_mul = mul_ir_to_ir_mul(x2, self.irreps_in2_o3)
 
@@ -93,10 +95,36 @@ class FullyConnectedTensorProduct(hk.Module):
                 raise ValueError(
                     'Weights must be provided when internal weights are not used'
                 )
-            if weights.shape[-1] != self.weight_numel:
+            weights = jnp.asarray(weights, dtype=x1.dtype)
+            if weights.ndim == 1:
+                if weights.shape[0] != self.weight_numel:
+                    raise ValueError(
+                        f'Expected weights last dimension {self.weight_numel}, got {weights.shape[-1]}'
+                    )
+                weights = weights[jnp.newaxis, :]
+            elif weights.ndim == 2:
+                if weights.shape[-1] != self.weight_numel:
+                    raise ValueError(
+                        f'Expected weights last dimension {self.weight_numel}, got {weights.shape[-1]}'
+                    )
+            else:
                 raise ValueError(
-                    f'Expected weights last dimension {self.weight_numel}, got {weights.shape[-1]}'
+                    'Weights must have rank 1 or 2 when internal weights are not used'
                 )
+
+            if self.shared_weights:
+                if weights.shape[0] not in (1, batch_size):
+                    raise ValueError(
+                        'Shared weights require leading dimension 1 or equal to the batch size'
+                    )
+                if weights.shape[0] == 1 and batch_size != 1:
+                    weights = jnp.broadcast_to(weights, (batch_size, self.weight_numel))
+            else:
+                if weights.shape[0] != batch_size:
+                    raise ValueError(
+                        'Unshared weights require leading dimension equal to the batch size'
+                    )
+
             weight_rep = cuex.RepArray(
                 self.weight_irreps,
                 weights,
