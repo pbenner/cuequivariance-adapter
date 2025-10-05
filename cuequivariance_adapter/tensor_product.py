@@ -5,6 +5,7 @@ from __future__ import annotations
 import cuequivariance as cue
 import cuequivariance_jax as cuex
 import haiku as hk
+import jax
 import jax.numpy as jnp
 from e3nn_jax import Irreps
 
@@ -31,7 +32,6 @@ class TensorProduct(hk.Module):
             raise ValueError(
                 'TensorProduct requires shared_weights=True when internal_weights=True'
             )
-
         self.shared_weights = shared_weights
         self.internal_weights = internal_weights
 
@@ -49,6 +49,7 @@ class TensorProduct(hk.Module):
         self.descriptor = descriptor
         self.weight_irreps = descriptor.inputs[0].irreps
         self.weight_numel = descriptor.polynomial.operands[0].size
+        self.descriptor_out_irreps_o3 = Irreps(str(descriptor.outputs[0].irreps))
 
     def __call__(
         self,
@@ -123,12 +124,17 @@ class TensorProduct(hk.Module):
             cue.ir_mul,
         )
 
-        output_rep = cuex.equivariant_polynomial(
-            self.descriptor,
-            [weight_rep, x1_rep, x2_rep],
+        [out_ir_mul] = cuex.segmented_polynomial(
+            self.descriptor.polynomial,
+            [weight_rep.array, x1_rep.array, x2_rep.array],
+            [
+                jax.ShapeDtypeStruct(
+                    (*x1.shape[:-1], self.descriptor_out_irreps_o3.dim), x1.dtype
+                )
+            ],
             method='naive',
+            math_dtype=x1.dtype,
         )
 
-        out_ir_mul = output_rep.array
-        out_mul_ir = ir_mul_to_mul_ir(out_ir_mul, self.irreps_out_o3)
+        out_mul_ir = ir_mul_to_mul_ir(out_ir_mul, self.descriptor_out_irreps_o3)
         return out_mul_ir

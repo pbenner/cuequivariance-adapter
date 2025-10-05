@@ -88,7 +88,9 @@ def _build_cuex_apply(
                         )
                     weight_value = weight_value[:1]
                 else:
-                    raise ValueError('TensorProductCuex internal weights must be rank 1 or 2')
+                    raise ValueError(
+                        'TensorProductCuex internal weights must be rank 1 or 2'
+                    )
                 module_name, param_name = weight_location
                 mutable[module_name][param_name] = weight_value
                 next_params = hk.data_structures.to_immutable_dict(mutable)
@@ -225,6 +227,7 @@ TENSOR_PRODUCT_CASES = [
     ('2x0e + 1x1o', '1x0e + 1x1o', '3x0e + 3x1o + 1x2e'),
     ('3x1e', '1x0e + 1x1e + 1x2e', '3x0e + 6x1e + 3x2e'),
     ('1x2o + 2x1e', '1x0e + 1x1o', '3x1e + 3x2o + 1x3e'),
+    ('2x0e', '2x0e', '2x0e'),
 ]
 
 WEIGHT_CONFIGS = [
