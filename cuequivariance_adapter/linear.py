@@ -7,12 +7,10 @@ import cuequivariance_jax as cuex
 import haiku as hk
 import jax.numpy as jnp
 from e3nn_jax import Irreps
-from mace_jax.haiku.torch import register_import
 
 from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
 
 
-@register_import('TODO')
 class Linear(hk.Module):
     """Linear transform evaluated with cuequivariance-jax."""
 
