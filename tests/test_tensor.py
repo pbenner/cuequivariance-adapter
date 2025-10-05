@@ -6,6 +6,7 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 import torch
 from e3nn import o3
 from mace.modules.irreps_tools import tp_out_irreps_with_instructions
@@ -131,40 +132,37 @@ def compare_once(
     out_cuex = cuex_apply(x1_jax, x2_jax, weights_jax)
     out_cuex = torch.from_numpy(np.array(out_cuex, copy=True))
 
-    print('out_e3nn:', out_e3nn)
-    print('out_cuex:', out_cuex)
-
     diff_cuet = (out_e3nn - out_cue).abs().max().item()
     diff_cuex = (out_e3nn - out_cuex).abs().max().item()
     diff_cross = (out_cue - out_cuex).abs().max().item()
 
-    print(
-        f'{irreps1} ⊗ {irreps2} → {target_o3}: '
-        f'max |Δ_e3nn-cuet| = {diff_cuet:.3e}, '
-        f'max |Δ_e3nn-cuex| = {diff_cuex:.3e}, '
-        f'max |Δ_cuet-cuex| = {diff_cross:.3e}, '
-        f'weight_numel = {tp_e3nn.weight_numel}'
-    )
     return max(diff_cuet, diff_cuex, diff_cross)
 
 
-def main():
-    torch.set_default_dtype(torch.float64)
+TENSOR_PRODUCT_CASES = [
+    ('2x0e + 1x1o', '1x0e + 1x1o', '3x0e + 3x1o + 1x2e'),
+    ('3x1e', '1x0e + 1x1e + 1x2e', '3x0e + 6x1e + 3x2e'),
+    ('1x2o + 2x1e', '1x0e + 1x1o', '3x1e + 3x2o + 1x3e'),
+]
 
-    combos = [
-        ('2x0e + 1x1o', '1x0e + 1x1o', '3x0e + 3x1o + 1x2e'),
-        ('3x1e', '1x0e + 1x1e + 1x2e', '3x0e + 6x1e + 3x2e'),
-        ('1x2o + 2x1e', '1x0e + 1x1o', '3x1e + 3x2o + 1x3e'),
-    ]
 
-    diffs = [compare_once(*combo) for combo in combos]
-    worst = max(diffs, default=0.0)
-
+class TestTensorProduct:
     tol = 1e-12
-    if worst > tol:
-        raise SystemExit(f'FAILED max diff {worst:.3e} > {tol}')
-    print(f'All comparisons passed (max diff {worst:.3e} ≤ {tol})')
 
+    @pytest.fixture(autouse=True)
+    def _set_default_dtype(self):
+        previous_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.float64)
+        yield
+        torch.set_default_dtype(previous_dtype)
 
-if __name__ == '__main__':
-    main()
+    @pytest.mark.parametrize(
+        'irreps1, irreps2, irreps_target',
+        TENSOR_PRODUCT_CASES,
+    )
+    def test_tensor_product_agreement(self, irreps1, irreps2, irreps_target):
+        diff = compare_once(irreps1, irreps2, irreps_target)
+        assert diff <= self.tol, (
+            f'max deviation {diff:.3e} exceeds tolerance {self.tol} '
+            f'for {irreps1} ⊗ {irreps2} → {irreps_target}'
+        )
