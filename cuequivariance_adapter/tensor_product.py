@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 from e3nn_jax import Irreps
 
-from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
+from .utility import collapse_ir_mul_segments, ir_mul_to_mul_ir, mul_ir_to_ir_mul
 
 
 class TensorProduct(hk.Module):
@@ -50,6 +50,7 @@ class TensorProduct(hk.Module):
         self.weight_irreps = descriptor.inputs[0].irreps
         self.weight_numel = descriptor.polynomial.operands[0].size
         self.descriptor_out_irreps_o3 = Irreps(str(descriptor.outputs[0].irreps))
+        self.output_segment_shapes = tuple(descriptor.polynomial.operands[-1].segments)
 
     def __call__(
         self,
@@ -135,6 +136,11 @@ class TensorProduct(hk.Module):
             method='naive',
             math_dtype=x1.dtype,
         )
-
-        out_mul_ir = ir_mul_to_mul_ir(out_ir_mul, self.descriptor_out_irreps_o3)
+        out_ir_mul = collapse_ir_mul_segments(
+            out_ir_mul,
+            self.descriptor_out_irreps_o3,
+            self.irreps_out_o3,
+            self.output_segment_shapes,
+        )
+        out_mul_ir = ir_mul_to_mul_ir(out_ir_mul, self.irreps_out_o3)
         return out_mul_ir
