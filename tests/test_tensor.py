@@ -1,5 +1,3 @@
-import os
-import sys
 from typing import List, Optional
 
 import cuequivariance as cue

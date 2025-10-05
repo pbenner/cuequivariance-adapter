@@ -1,9 +1,48 @@
 [build-system]
 requires = [
-    "setuptools>=42",
+    "setuptools>=64",
     "wheel",
 ]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "cuequivariance-adapter"
+version = "0.1.0"
+description = "Cuequivariance-backed layers."
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "chex",
+    "optax",
+    "e3nn_jax",
+    "numpy",
+    "ase",
+    "matscipy",
+    "roundmantissa",
+    "jraph",
+    "jax>=0.4.23",
+    "cuequivariance",
+    "cuequivariance-jax",
+    "dm-haiku",
+    "gin-config",
+    "unique_names_generator",
+    "tqdm",
+    "matplotlib",
+    "pandas",
+]
+
+[tool.setuptools.packages.find]
+include = [
+    "cuequivariance_adapter",
+    "cuequivariance_adapter.*",
+]
 
 # Make isort compatible with black
 [tool.isort]
