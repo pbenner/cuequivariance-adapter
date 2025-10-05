@@ -13,7 +13,46 @@ from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
 
 
 class FullyConnectedTensorProduct(hk.Module):
-    """FullyConnectedTensorProduct evaluated with cuequivariance-jax."""
+    r"""Fully connected tensor product evaluated with cuequivariance-jax.
+
+    This module parallels :class:`e3nn.o3.FullyConnectedTensorProduct`, which in
+    e3nn terminology exhaustively mixes every multiplicity from the two inputs
+    into every valid output irrep using the ``'uvw'`` connection mode.  In the
+    cuequivariance setting the corresponding descriptor is obtained from
+    :func:`cue.descriptors.fully_connected_tensor_product` and is interpreted as
+    a segmented polynomial where:
+
+    .. math::
+
+        z_{w,k} = \sum_{u,v} w_{w,u,v} \, \langle x_u \otimes y_v, \mathrm{CG}_{u,v \to k} \rangle,
+
+    with ``u``/``v`` iterating over all multiplicities of the inputs and ``w``
+    indexing the output multiplicity of ``irreps_out``.  Every admissible triple
+    contributes because the module is fully connected.
+
+    - Inputs and weights live in ``ir_mul`` layout, grouped by irrep block.
+    - Each path carries the Clebsch–Gordan coefficients for one triple
+      (input1, input2, output).  Because the map is fully connected the output
+      multiplicity is the product of the input multiplicities (all u–v–w
+      combinations are present).
+
+    To present an e3nn-style interface we:
+
+    1. Accept activations in ``mul_ir`` layout, convert them to ``ir_mul`` before
+       wrapping them in :class:`cuequivariance_jax.RepArray` (attaching the cue
+       ``Irreps`` metadata and layout), invoke
+       :func:`cuequivariance_jax.segmented_polynomial`, and convert the result
+       back afterwards so the caller receives the standard e3nn layout.
+    2. Reduce the redundant multiplicity dimension introduced by cue’s
+       descriptor (summing across u–v combinations and normalising by
+       ``sqrt(multiplicity)``) so that the output dimension matches the e3nn
+       expectation.
+    3. Handle internal/shared weights exactly as e3nn does, while letting the
+       cue backend evaluate the actual polynomial.
+
+    The outcome is a Haiku module that behaves like e3nn’s fully connected tensor
+    product but is implemented on top of cuequivariance.
+    """
 
     def __init__(
         self,

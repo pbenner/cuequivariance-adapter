@@ -7,7 +7,13 @@ from e3nn_jax import Irreps
 
 
 def _ensure_tuple_ints(value: tuple[int, ...], name: str) -> tuple[int, ...]:
-    """Validate ``value`` is a tuple of ints and return it."""
+    """Return ``value`` if it is a tuple of ints, otherwise raise ``TypeError``.
+
+    The helper keeps validation for descriptor metadata in one place so callers
+    can assume segment shapes are well-formed.  It preserves the original tuple
+    to avoid extra allocations and fails loudly when a descriptor contains
+    unexpected types.
+    """
 
     if not isinstance(value, tuple) or not all(isinstance(x, int) for x in value):
         raise TypeError(f'{name} must be a tuple of ints, got {value!r}')
@@ -20,15 +26,16 @@ def collapse_ir_mul_segments(
     target_irreps: Irreps,
     segment_shapes: tuple[tuple[int, ...], ...],
 ) -> jnp.ndarray:
-    """Map ``array`` from descriptor layout to ``target_irreps`` ir_mul layout.
+    """Map ``array`` from descriptor layout to ``target_irreps`` ``ir_mul`` layout.
 
-    ``cue.descriptors.channelwise_tensor_product`` produces outputs whose
-    multiplicities are the product of the input multiplicities.  When e3nn's
-    tensor product instructions use ``'uvu'`` or ``'uvv'`` connection modes the
-    expected output multiplicity matches only one of the input multiplicities.
-    This helper collapses the extra axis by summing over the redundant
-    multiplicity so the tensor matches ``target_irreps`` while staying in
-    ir_mul layout.
+    Channel-wise cue descriptors expand each irrep block into
+    ``(ir_dim, mul_in1, mul_in2)`` segments so that every u–v combination is
+    explicit.  e3nn, however, expects multiplicities that correspond to the
+    output irreps only.  This helper reshapes each block to
+    ``(..., ir_dim, mul_in1, mul_in2)``, reduces across the redundant axis when
+    necessary (normalising by ``sqrt(multiplicity)`` to preserve norms), and
+    flattens back to ``(..., ir_dim * mul_out)`` so the tensor matches the
+    target irreps while remaining in ``ir_mul`` order.
     """
 
     if descriptor_irreps == target_irreps:
@@ -124,7 +131,13 @@ def collapse_ir_mul_segments(
 
 
 def mul_ir_to_ir_mul(array: jnp.ndarray, irreps: Irreps) -> jnp.ndarray:
-    """Reorder the last axis of ``array`` from mul_ir to ir_mul layout."""
+    """Reorder the last axis of ``array`` from ``mul_ir`` to ``ir_mul`` layout.
+
+    e3nn stores each irrep block as ``(mul, ir_dim)`` whereas cue expects
+    ``(ir_dim, mul)``.  This routine performs the reshape–transpose–reshape dance
+    for every block described by ``irreps`` so that downstream cue calls receive
+    data in the correct memory order.
+    """
 
     if irreps.dim == 0:
         return array
@@ -144,7 +157,12 @@ def mul_ir_to_ir_mul(array: jnp.ndarray, irreps: Irreps) -> jnp.ndarray:
 
 
 def ir_mul_to_mul_ir(array: jnp.ndarray, irreps: Irreps) -> jnp.ndarray:
-    """Reorder the last axis of ``array`` from ir_mul back to mul_ir layout."""
+    """Reorder the last axis of ``array`` from ``ir_mul`` back to ``mul_ir``.
+
+    This is the inverse transformation of :func:`mul_ir_to_ir_mul`.  It restores
+    e3nn’s block layout after a cue backend produced results in ``ir_mul``
+    order, ensuring the shapes can flow directly into e3nn-style modules.
+    """
 
     if irreps.dim == 0:
         return array

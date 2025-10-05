@@ -12,7 +12,36 @@ from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
 
 
 class Linear(hk.Module):
-    """Linear transform evaluated with cuequivariance-jax."""
+    r"""Linear transform evaluated with cuequivariance-jax.
+
+    Mathematically the module realises :math:`y = W x`, where ``x`` carries the
+    input irreps specified by ``irreps_in`` and ``W`` is constrained so that
+    each output irrep mixes only the compatible input irreps.  The resulting
+    vector ``y`` is organised according to ``irreps_out``.  Cuequivariance
+    expresses such linear maps as segmented polynomials evaluated on a
+    descriptor produced by :func:`cue.descriptors.linear`.  Following the same
+    terminology as for the tensor product adapter:
+
+    - Inputs are expected in ``ir_mul`` order with one segment per irrep block.
+    - The descriptor stores a single *path* per pair of input and output
+      irreps, together with the Clebsch–Gordan coefficients that realise the
+      linear map as a polynomial.
+
+    By contrast :mod:`e3nn` exposes :class:`e3nn.o3.Linear`, whose public API
+    works with e3nn ``Irreps`` objects, stores tensors in ``mul_ir`` layout
+    (multiplicity-major), and controls internal or shared weights directly on
+    the module instance.
+
+    This adapter constructs the cue descriptor once, converts the incoming
+    activations from ``mul_ir`` to the ``ir_mul`` layout that the cue backend
+    expects, wraps them in :class:`cuequivariance_jax.RepArray` (which pairs the
+    array with its cue ``Irreps`` metadata and layout flag), delegates evaluation
+    to :func:`cuequivariance_jax.equivariant_polynomial` (the linear-specialised
+    segmented-polynomial evaluator), and then converts the result back to
+    ``mul_ir`` so callers observe the standard e3nn layout.  Weight handling
+    mirrors e3nn semantics: internal weights live as Haiku parameters, while
+    external weights are validated and passed through to the backend.
+    """
 
     def __init__(
         self,

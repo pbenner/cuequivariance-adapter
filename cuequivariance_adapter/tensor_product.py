@@ -13,7 +13,70 @@ from .utility import collapse_ir_mul_segments, ir_mul_to_mul_ir, mul_ir_to_ir_mu
 
 
 class TensorProduct(hk.Module):
-    """Channel-wise tensor product evaluated with cuequivariance-jax."""
+    r"""Channel-wise tensor product evaluated with cuequivariance-jax.
+
+    Given two inputs ``x`` and ``y`` carrying irreps ``irreps_in1`` and
+    ``irreps_in2``, and a learned weight tensor ``w`` shaped according to the
+    channel-wise instructions, this module evaluates
+
+    .. math::
+
+        z_{u,k} = \sum_{v} w_{u,v} \,\langle x_u \otimes y_v, \mathrm{CG}_{u,v \to k}\rangle,
+
+    where the indices ``u``/``v`` enumerate multiplicities of the two inputs,
+    ``k`` enumerates the output multiplicities consistent with the Clebsch–
+    Gordan (CG) rules, and the inner product contracts the irrep components with
+    the CG coefficients supplied by the descriptor.  The output ``z`` is then
+    rearranged into ``mul_ir`` layout matching :mod:`e3nn`.
+
+    **Terminology.** In the cuequivariance world a *descriptor* produced by
+    :func:`cue.descriptors.channelwise_tensor_product` contains:
+
+    - *Operands* – arrays laid out in ``ir_mul`` order (irrep components are the
+      slow axis, multiplicity is the fast axis). Each operand is split into
+      *segments*, one per irrep block; the descriptor records the segment sizes.
+    - *Paths* – metadata describing how to combine specific segments of the
+      operands.  Each path corresponds to a weighted contribution that mixes the
+      multiplicity indices of the inputs.  Evaluating all paths is sometimes
+      colloquially called a *contraction*.
+    - A *segmented polynomial representation* – the tensor product is expressed
+      as a polynomial where the operands provide the variables and the path
+      coefficients encode the Clebsch–Gordan data.  Backends such as
+      :mod:`cuequivariance_jax` evaluate this polynomial via
+      :func:`cuequivariance_jax.segmented_polynomial`.
+
+    **Contrast with e3nn.** :mod:`e3nn` offers object-oriented modules like
+    :class:`e3nn.o3.TensorProduct`.  Users provide ``Irreps`` objects plus a list
+    of instructions ``(i_in1, i_in2, i_out, mode, has_weight[, path_weight])``.
+    Multiplicities are captured directly in the ``Irreps`` entries, tensors are
+    stored in ``mul_ir`` layout (multiplicity blocks followed by the irrep
+    components), and the module manages weight sharing semantics.
+
+    **What this adapter does.** Given e3nn-style inputs and configuration we:
+
+    1. Build the cue descriptor mirroring the same tensor product.  This gives
+       us the segmented-polynomial view and the cue-specific ``ir_mul`` layout.
+    2. Map inputs from e3nn's ``mul_ir`` layout into ``ir_mul`` before calling
+       the backend, and convert the result back afterwards so callers continue to
+       see e3nn-compatible shapes.
+    3. When cue expands multiplicities differently (for example, with ``'uvu'``
+       instructions the descriptor treats multiplicities as the product of the
+       input counts) we *collapse output segments*: we reshape the result into
+       ``(ir_dim, mul_in1, mul_in2)``, sum over the redundant axis (a reduction
+       of the segmented polynomial), normalise by ``sqrt(multiplicity)`` so that
+       norms stay comparable to e3nn, and finally flatten back to
+       ``ir_dim * mul_out``.
+    4. Manage shared or internal weights using the same conventions as
+       :class:`e3nn.o3.TensorProduct` while delegating the numeric evaluation to
+       :func:`cuequivariance_jax.segmented_polynomial`.
+
+    The result is a Haiku module with the familiar e3nn API whose computations
+    are carried out by cuequivariance.  Internally we wrap each operand in a
+    :class:`cuequivariance_jax.RepArray`, which couples the raw ``ir_mul`` array
+    with the corresponding cue ``Irreps`` object and layout tag.  This is the
+    canonical entry point for the JAX backend and makes the descriptor/array
+    pairing explicit before the segmented polynomial is evaluated.
+    """
 
     def __init__(
         self,
