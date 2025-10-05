@@ -12,6 +12,52 @@ from e3nn_jax import Irreps
 from .utility import collapse_ir_mul_segments, ir_mul_to_mul_ir, mul_ir_to_ir_mul
 
 
+def _expected_channelwise_instructions(
+    irreps_in1: Irreps, irreps_in2: Irreps, target_irreps: Irreps
+) -> tuple[Irreps, list[tuple[int, int, int, str, bool, float]]]:
+    """Return the sorted output irreps and instruction list for channel-wise TP."""
+
+    collected: list[tuple[int, Irreps]] = []
+    instructions: list[tuple[int, int, int, str, bool, float]] = []
+    for i_in1, (mul_in1, ir_in1) in enumerate(irreps_in1):
+        for i_in2, (_, ir_in2) in enumerate(irreps_in2):
+            for ir_out in ir_in1 * ir_in2:
+                if ir_out in target_irreps:
+                    idx = len(collected)
+                    collected.append((mul_in1, ir_out))
+                    instructions.append((i_in1, i_in2, idx, 'uvu', True, 1.0))
+
+    irreps_out = Irreps(collected)
+    irreps_out_sorted, perm, _ = irreps_out.sort()
+    remapped_instructions = [
+        (i_in1, i_in2, perm[i_out], mode, has_weight, path_weight)
+        for i_in1, i_in2, i_out, mode, has_weight, path_weight in instructions
+    ]
+    remapped_instructions.sort(key=lambda item: item[2])
+    return irreps_out_sorted, remapped_instructions
+
+
+def _normalise_instruction(inst) -> tuple[int, int, int, str, bool, float]:
+    if len(inst) == 5:
+        i1, i2, i_out, mode, has_weight = inst
+        path_weight = 1.0
+    elif len(inst) == 6:
+        i1, i2, i_out, mode, has_weight, path_weight = inst
+    else:
+        raise ValueError(
+            'TensorProduct instructions must have length 5 or 6, '
+            f'got length {len(inst)}'
+        )
+    return (
+        int(i1),
+        int(i2),
+        int(i_out),
+        str(mode),
+        bool(has_weight),
+        float(path_weight),
+    )
+
+
 class TensorProduct(hk.Module):
     r"""Channel-wise tensor product evaluated with cuequivariance-jax.
 
@@ -114,6 +160,23 @@ class TensorProduct(hk.Module):
         self.weight_numel = descriptor.polynomial.operands[0].size
         self.descriptor_out_irreps_o3 = Irreps(str(descriptor.outputs[0].irreps))
         self.output_segment_shapes = tuple(descriptor.polynomial.operands[-1].segments)
+
+        expected_irreps, expected_instructions = _expected_channelwise_instructions(
+            self.irreps_in1_o3, self.irreps_in2_o3, self.irreps_out_o3
+        )
+        if expected_irreps != self.irreps_out_o3:
+            raise ValueError(
+                'TensorProduct irreps_out is incompatible with channel-wise descriptor'
+            )
+
+        if instructions is not None:
+            normalised = [_normalise_instruction(inst) for inst in instructions]
+            if normalised != expected_instructions:
+                raise ValueError(
+                    'TensorProduct only supports channel-wise "uvu" instructions '
+                    'matching those returned by e3nn; received '
+                    f'{instructions!r}'
+                )
 
     def __call__(
         self,
