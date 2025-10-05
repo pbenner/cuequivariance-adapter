@@ -21,6 +21,8 @@ class TensorProduct(hk.Module):
         irreps_out: Irreps,
         shared_weights: bool = False,
         internal_weights: bool = False,
+        instructions=None,
+        cueq_config=None,
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
