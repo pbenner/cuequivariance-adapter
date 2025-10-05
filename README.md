@@ -20,6 +20,9 @@ minimal code changes.
 - **FullyConnectedTensorProduct** – Exhaustively mixes input multiplicities just
   like :class:`e3nn.o3.FullyConnectedTensorProduct`, delegating the computation
   to cue while preserving the e3nn UX.
+- **SymmetricContraction** – Implements the species-dependent symmetric
+  contraction used in MACE with the option to operate in the reduced CG basis or
+  emulate the original formulation.
 
 The adapters convert between the layout conventions automatically, collapse the
 extra multiplicity axes introduced by cue descriptors, normalise results to
