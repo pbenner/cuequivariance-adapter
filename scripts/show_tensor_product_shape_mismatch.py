@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import torch
-from e3nn import o3
-
 import cuequivariance as cue
 import cuequivariance_torch as cuet
-
+import torch
+from e3nn import o3
 from mace.modules.irreps_tools import tp_out_irreps_with_instructions
+from mace.modules.wrapper_ops import CuEquivarianceConfig, TensorProduct
 
 
 def main() -> None:
@@ -25,30 +24,24 @@ def main() -> None:
         requested_out_o3,
     )
 
-    tp_e3nn = o3.TensorProduct(
+    tp_e3nn = TensorProduct(
         irreps_in1_o3,
         irreps_in2_o3,
         target_o3,
         instructions=instructions,
         shared_weights=False,
         internal_weights=False,
+        cueq_config=None,
     )
 
-    irreps_in1_cue = cue.Irreps(cue.O3, irreps_spec)
-    irreps_in2_cue = cue.Irreps(cue.O3, irreps_spec)
-    irreps_out_cue = cue.Irreps(cue.O3, str(requested_out_o3))
-
-    descriptor = cue.descriptors.channelwise_tensor_product(
-        irreps_in1_cue,
-        irreps_in2_cue,
-        irreps_out_cue,
-    )
-    tp_cue = cuet.ChannelWiseTensorProduct(
-        irreps_in1_cue,
-        irreps_in2_cue,
-        irreps_out_cue,
+    tp_cue = TensorProduct(
+        o3.Irreps(irreps_spec),
+        o3.Irreps(irreps_spec),
+        o3.Irreps(str(requested_out_o3)),
+        instructions=instructions,
         shared_weights=False,
         internal_weights=False,
+        cueq_config=CuEquivarianceConfig(enabled=True, optimize_channelwise=True),
     )
 
     torch.manual_seed(0)
@@ -62,15 +55,20 @@ def main() -> None:
     print('Input irreps:', irreps_spec)
     print('Requested output irreps:', requested_out_o3)
     print('Target irreps from e3nn:', target_o3)
-    print('ChannelWise descriptor output irreps:', descriptor.outputs[0].irreps)
     print('Instructions (i1, i2, i_out, mode, train):', instructions)
+    print('e3nn implementation:', type(tp_e3nn).__name__)
+    print('cue implementation:', type(tp_cue).__name__)
     print('Batch size:', batch)
     print('e3nn output shape:', tuple(out_e3nn.shape))
     print('cue output shape:', tuple(out_cue.shape))
 
     if out_e3nn.shape != out_cue.shape:
-        print('\n⚠️  Shape mismatch detected! cue channels:', out_cue.shape[-1],
-              'vs e3nn channels:', out_e3nn.shape[-1])
+        print(
+            '\n⚠️  Shape mismatch detected! cue channels:',
+            out_cue.shape[-1],
+            'vs e3nn channels:',
+            out_e3nn.shape[-1],
+        )
     else:
         print('\n✅  Shapes match.')
 
