@@ -1,5 +1,3 @@
-from typing import List, Optional
-
 import cuequivariance as cue
 import cuequivariance_torch as cuet
 import haiku as hk
@@ -16,21 +14,6 @@ from cuequivariance_adapter.fully_connected_tensor_product import (
 )
 
 jax.config.update('jax_enable_x64', True)
-
-
-def _fully_connected_instructions(
-    irreps_in1: o3.Irreps,
-    irreps_in2: o3.Irreps,
-    irreps_out: o3.Irreps,
-) -> List[tuple[int, int, int, str, bool]]:
-    instructions: list[tuple[int, int, int, str, bool]] = []
-    for i1, (_, ir1) in enumerate(irreps_in1):
-        for i2, (_, ir2) in enumerate(irreps_in2):
-            product_irreps = list(ir1 * ir2)
-            for i_out, (_, ir_out) in enumerate(irreps_out):
-                if ir_out in product_irreps:
-                    instructions.append((i1, i2, i_out, 'uvw', True))
-    return instructions
 
 
 def _build_cuex_apply(
@@ -120,15 +103,10 @@ def compare_once(
     irreps2_o3 = o3.Irreps(irreps2)
     irreps_out_o3 = o3.Irreps(irreps_out)
 
-    instructions = _fully_connected_instructions(
-        irreps1_o3, irreps2_o3, irreps_out_o3
-    )
-
-    tp_e3nn = o3.TensorProduct(
+    tp_e3nn = o3.FullyConnectedTensorProduct(
         irreps1_o3,
         irreps2_o3,
         irreps_out_o3,
-        instructions=instructions,
         shared_weights=shared_weights,
         internal_weights=internal_weights,
     )
