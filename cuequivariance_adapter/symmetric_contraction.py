@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from cuequivariance.group_theory.experimental.mace.symmetric_contractions import (
     symmetric_contraction as cue_mace_symmetric_contraction,
 )
-from e3nn_jax import Irreps
+from e3nn_jax import Irreps  # type: ignore
 
 from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
 
