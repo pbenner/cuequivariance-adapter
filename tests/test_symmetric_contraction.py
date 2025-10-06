@@ -50,6 +50,16 @@ def _init_adapter_module(
 def _collect_mace_torch_basis(
     mace_module: MaceSymmetricContraction,
 ) -> np.ndarray:
+    """Flatten per-block MACE weights into adapter layout.
+
+    MACE splits the learnable parameters across one ``Contraction`` object per
+    output irrep. Each contraction stores ``weights_max`` (highest-order term)
+    and additional tensors in ``contraction.weights`` for the lower degrees.
+    For parity we reshape each of those tensors to
+    ``(num_elements, params_per_degree, num_features)`` and concatenate along
+    the parameter axis so the combined array matches the single Haiku parameter
+    ``(num_elements, total_params, num_features)`` used by the adapter.
+    """
     parts: list[np.ndarray] = []
     for contraction in mace_module.contractions:
         tensors = [contraction.weights_max, *contraction.weights]
