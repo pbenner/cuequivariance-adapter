@@ -34,10 +34,11 @@ class SymmetricContraction(hk.Module):
     supplied by the cue descriptor.  The element index ``w`` selects which row
     of the weight tensor is used for each batch item.  Inputs and outputs are in
     the familiar e3nn ``mul_ir`` layout; cue handles the segmented-polynomial
-    evaluation in ``ir_mul`` order internally.  Depending on ``use_reduced_cg``
-    the weights are either parameterised in the reduced CG basis or projected to
-    the original MACE basis using the matrices returned by
-    :mod:`cuequivariance`.
+    evaluation in ``ir_mul`` order internally.  At the moment the adapter only
+    supports ``use_reduced_cg=True``—the reduced CG basis that cue provides.  The
+    original MACE basis requires an additional change of coordinates whose
+    projection is rank-deficient for common high-order contractions, so we raise
+    an explicit error instead of silently producing mismatched results.
     """
 
     def __init__(
@@ -56,6 +57,13 @@ class SymmetricContraction(hk.Module):
             raise ValueError('correlation must be a positive integer')
         if num_elements <= 0:
             raise ValueError('num_elements must be positive')
+
+        if not use_reduced_cg:
+            raise NotImplementedError(
+                'SymmetricContraction currently supports only use_reduced_cg=True; '
+                'the projection back to the original MACE weight basis loses rank '
+                'and leads to incorrect outputs when use_reduced_cg=False.'
+            )
 
         self.correlation = correlation
         self.num_elements = num_elements
@@ -87,12 +95,8 @@ class SymmetricContraction(hk.Module):
         self.weight_irreps = descriptor.inputs[0].irreps
         self.weight_numel = self.weight_irreps.dim
 
-        if use_reduced_cg:
-            self.projection = None
-            self.weight_basis_dim = self.weight_numel // self.mul
-        else:
-            self.projection = jnp.asarray(projection)
-            self.weight_basis_dim = self.projection.shape[0]
+        self.projection = None
+        self.weight_basis_dim = self.weight_numel // self.mul
 
         self.weight_param_shape = (self.num_elements, self.weight_basis_dim, self.mul)
 
