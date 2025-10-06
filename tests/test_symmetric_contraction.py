@@ -84,6 +84,7 @@ def _compare_to_mace(
     num_elements: int,
     batch: int = 5,
     seed: int = 0,
+    use_per_node_mix: bool = False,
 ) -> float:
     irreps_in_o3 = o3.Irreps(irreps_in)
     irreps_out_o3 = o3.Irreps(irreps_out)
@@ -120,8 +121,13 @@ def _compare_to_mace(
     mul = irreps_in_o3[0].mul
     feature_width = sum(ir.dim for _, ir in irreps_in_o3)
     x_features = rng.standard_normal((batch, mul, feature_width)).astype(np.float64)
-    indices = rng.integers(0, num_elements, size=(batch,), dtype=np.int32)
-    y_one_hot = np.eye(num_elements, dtype=np.float64)[indices]
+    if use_per_node_mix:
+        mix_matrix = rng.standard_normal((batch, num_elements)).astype(np.float64)
+        indices = mix_matrix  # stored for the adapter branch
+        y_matrix = mix_matrix
+    else:
+        indices = rng.integers(0, num_elements, size=(batch,), dtype=np.int32)
+        y_matrix = np.eye(num_elements, dtype=np.float64)[indices]
 
     out_adapter = adapter_tf.apply(
         adapter_params,
@@ -130,7 +136,7 @@ def _compare_to_mace(
     )
 
     x_torch = torch.from_numpy(x_features).to(dtype=torch.double)
-    y_torch = torch.from_numpy(y_one_hot).to(dtype=torch.double)
+    y_torch = torch.from_numpy(y_matrix).to(dtype=torch.double)
     out_mace = mace_torch(x_torch, y_torch).detach().cpu().numpy()
 
     return float(np.max(np.abs(np.asarray(out_adapter) - out_mace)))
@@ -142,6 +148,7 @@ SYMMETRIC_CASES = [
     ('2x0e + 2x1o', '2x0e', 2, 5),
     ('4x0e + 4x1o', '4x0e + 4x1o', 3, 6),
     ('4x0e + 4x1o', '4x0e', 3, 6),
+    ('128x0e+128x1o+128x2e+128x3o', '128x0e+128x1o+128x2e', 2, 10),
 ]
 
 
@@ -167,4 +174,26 @@ class TestSymmetricContraction:
         assert diff <= self.tol, (
             f'MACE comparison deviation {diff:.3e} exceeds tolerance {self.tol} '
             f'for correlation={correlation}'
+        )
+
+    @pytest.mark.parametrize(
+        'irreps_in, irreps_out, correlation, num_elements', SYMMETRIC_CASES[:1]
+    )
+    def test_per_node_mixing_fails_without_fix(
+        self,
+        irreps_in,
+        irreps_out,
+        correlation,
+        num_elements,
+    ):
+        diff = _compare_to_mace(
+            irreps_in,
+            irreps_out,
+            correlation=correlation,
+            num_elements=num_elements,
+            use_per_node_mix=True,
+        )
+        assert diff <= self.tol, (
+            'Per-node mixing deviation remains, expected alignment with MACE; '
+            f'max diff {diff:.3e}'
         )
