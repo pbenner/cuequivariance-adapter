@@ -38,12 +38,12 @@ def _build_cuex_apply(
         return module(x1, x2, weights)
 
     transformed = hk.without_apply_rng(hk.transform(forward))
-    zeros1 = jnp.zeros((1, irreps_in1.dim), dtype=jnp.float64)
-    zeros2 = jnp.zeros((1, irreps_in2.dim), dtype=jnp.float64)
+    zeros1 = jnp.zeros((1, irreps_in1.dim))
+    zeros2 = jnp.zeros((1, irreps_in2.dim))
     if internal_weights:
         params = transformed.init(jax.random.PRNGKey(0), zeros1, zeros2, None)
     else:
-        zerosw = jnp.zeros((1, weight_numel), dtype=jnp.float64)
+        zerosw = jnp.zeros((1, weight_numel))
         params = transformed.init(jax.random.PRNGKey(0), zeros1, zeros2, zerosw)
 
     cuex_numel = recorded.get('numel')
@@ -68,7 +68,7 @@ def _build_cuex_apply(
         if internal_weights:
             if weights is not None:
                 mutable = hk.data_structures.to_mutable_dict(params)
-                weight_value = jnp.asarray(weights, dtype=x1.dtype)
+                weight_value = jnp.asarray(weights)
                 if weight_value.ndim == 1:
                     weight_value = weight_value[jnp.newaxis, :]
                 elif weight_value.ndim == 2:
@@ -117,8 +117,6 @@ def compare_once(
         cue.Irreps(cue.O3, irreps_out_o3),
         shared_weights=shared_weights,
         internal_weights=internal_weights,
-        dtype=torch.get_default_dtype(),
-        math_dtype=torch.get_default_dtype(),
     )
 
     cuex_apply = _build_cuex_apply(
@@ -192,13 +190,6 @@ WEIGHT_CONFIGS = [
 
 class TestFullyConnectedTensorProduct:
     tol = 1e-12
-
-    @pytest.fixture(autouse=True)
-    def _set_default_dtype(self):
-        previous_dtype = torch.get_default_dtype()
-        torch.set_default_dtype(torch.float64)
-        yield
-        torch.set_default_dtype(previous_dtype)
 
     @pytest.mark.parametrize('shared_weights, internal_weights', WEIGHT_CONFIGS)
     @pytest.mark.parametrize('irreps1, irreps2, irreps_out', FULLY_CONNECTED_CASES)

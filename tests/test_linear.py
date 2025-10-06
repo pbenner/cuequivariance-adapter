@@ -36,11 +36,11 @@ def _build_cuex_apply(
         return module(x, weights)
 
     transformed = hk.without_apply_rng(hk.transform(forward))
-    zeros = jnp.zeros((1, irreps_in.dim), dtype=jnp.float64)
+    zeros = jnp.zeros((1, irreps_in.dim))
     if internal_weights:
         params = transformed.init(jax.random.PRNGKey(0), zeros, None)
     else:
-        zerosw = jnp.zeros((1, weight_numel), dtype=jnp.float64)
+        zerosw = jnp.zeros((1, weight_numel))
         params = transformed.init(jax.random.PRNGKey(0), zeros, zerosw)
 
     cuex_numel = recorded.get('numel')
@@ -64,7 +64,7 @@ def _build_cuex_apply(
         call_weights = weights
         if internal_weights:
             if weights is not None:
-                weight_value = jnp.asarray(weights, dtype=x.dtype)
+                weight_value = jnp.asarray(weights)
                 if weight_value.ndim == 2:
                     if weight_value.shape[0] != 1:
                         raise ValueError('Internal weights expect a single vector')
@@ -78,7 +78,7 @@ def _build_cuex_apply(
                 params = next_params
             call_weights = None
         else:
-            call_weights = jnp.asarray(weights, dtype=jnp.asarray(x).dtype)
+            call_weights = jnp.asarray(weights)
         x_array = jnp.asarray(x)
         return transformed.apply(next_params, x_array, call_weights)
 
@@ -173,13 +173,6 @@ class _BaseLinearTest:
     tol = 1e-12
     shared_weights: bool
     internal_weights: bool
-
-    @pytest.fixture(autouse=True)
-    def _set_default_dtype(self):
-        previous_dtype = torch.get_default_dtype()
-        torch.set_default_dtype(torch.float64)
-        yield
-        torch.set_default_dtype(previous_dtype)
 
     @pytest.mark.parametrize('irreps_in, irreps_out', LINEAR_CASES)
     def test_linear_agreement(self, irreps_in, irreps_out):

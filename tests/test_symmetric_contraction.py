@@ -33,8 +33,8 @@ def _build_cuex_apply(
         return module(x, indices)
 
     transformed = hk.without_apply_rng(hk.transform(forward))
-    zeros_x = jnp.zeros((1, irreps_in.dim), dtype=jnp.float64)
-    zeros_idx = jnp.zeros((1,), dtype=jnp.int32)
+    zeros_x = jnp.zeros((1, irreps_in.dim))
+    zeros_idx = jnp.arange(1)
     params = transformed.init(jax.random.PRNGKey(0), zeros_x, zeros_idx)
     return transformed, params
 
@@ -62,8 +62,6 @@ def _compare_once(
         layout_in=cue.mul_ir,
         layout_out=cue.mul_ir,
         original_mace=(not use_reduced_cg),
-        dtype=torch.get_default_dtype(),
-        math_dtype=torch.get_default_dtype(),
     )
 
     transformed, params = _build_cuex_apply(
@@ -80,8 +78,8 @@ def _compare_once(
     params = hk.data_structures.to_immutable_dict(mutable)
 
     torch.manual_seed(0)
-    x_torch = torch.randn(batch, irreps_in_o3.dim, dtype=torch.get_default_dtype())
-    indices_torch = torch.randint(0, num_elements, (batch,), dtype=torch.int64)
+    x_torch = torch.randn(batch, irreps_in_o3.dim)
+    indices_torch = torch.randint(0, num_elements, (batch,))
 
     out_cuet = cuet_module(x_torch, indices_torch)
 
@@ -105,13 +103,6 @@ SYMMETRIC_CASES = [
 
 class TestSymmetricContraction:
     tol = 1e-11
-
-    @pytest.fixture(autouse=True)
-    def _set_default_dtype(self):
-        previous_dtype = torch.get_default_dtype()
-        torch.set_default_dtype(torch.float64)
-        yield
-        torch.set_default_dtype(previous_dtype)
 
     @pytest.mark.parametrize(
         'use_reduced_cg',
