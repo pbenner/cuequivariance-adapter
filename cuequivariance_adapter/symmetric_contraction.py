@@ -41,6 +41,11 @@ class SymmetricContraction(hk.Module):
     the learnable weight tensor gains extra columns corresponding to that larger
     basis before the projection collapses it back to the reduced coordinates
     consumed by the descriptor.
+    The resulting Haiku parameter tensor has shape ``(num_elements,
+    weight_basis_dim, mul)`` so that weights drawn from
+    :class:`cuequivariance_torch.operations.symmetric_contraction.SymmetricContraction`
+    (via ``SymmetricContractionWrapper``) can be inserted without any further
+    reshaping in tests or migration scripts.
     """
 
     def __init__(
