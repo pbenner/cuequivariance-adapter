@@ -12,11 +12,18 @@ def _apply_channelwise_patch() -> None:
     except ImportError:  # pragma: no cover - torch backend optional
         return
 
-    from cuequivariance_adapter.torch_utils import (  # noqa: PLC0415
-        torch_collapse_ir_mul_segments,
-        torch_ir_mul_to_mul_ir,
-        torch_mul_ir_to_ir_mul,
-    )
+    try:
+        from ._torch_utils import (  # type: ignore  # noqa: PLC0415
+            torch_collapse_ir_mul_segments,
+            torch_ir_mul_to_mul_ir,
+            torch_mul_ir_to_ir_mul,
+        )
+    except ImportError:  # pragma: no cover - fallback for direct test runs
+        from _torch_utils import (  # type: ignore  # noqa: PLC0415
+            torch_collapse_ir_mul_segments,
+            torch_ir_mul_to_mul_ir,
+            torch_mul_ir_to_ir_mul,
+        )
 
     if getattr(cuet.ChannelWiseTensorProduct, '_cue_adapter_patched', False):
         return

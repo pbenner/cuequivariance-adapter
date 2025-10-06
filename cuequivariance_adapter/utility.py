@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
-from e3nn_jax import Irreps
+from e3nn_jax import Irreps  # type: ignore
 
 
 def _ensure_tuple_ints(value: tuple[int, ...], name: str) -> tuple[int, ...]:

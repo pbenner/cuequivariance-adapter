@@ -6,8 +6,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import torch
-from e3nn import o3
-from e3nn_jax import Irreps
+from e3nn import o3  # type: ignore
+from e3nn_jax import Irreps  # type: ignore
 
 from cuequivariance_adapter.symmetric_contraction import SymmetricContraction
 

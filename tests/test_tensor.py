@@ -8,9 +8,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import torch
-from e3nn import o3
-from mace.modules.irreps_tools import tp_out_irreps_with_instructions
-from mace.modules.wrapper_ops import (
+from e3nn import o3  # type: ignore
+from mace.modules.irreps_tools import tp_out_irreps_with_instructions  # type: ignore
+from mace.modules.wrapper_ops import (  # type: ignore
     CuEquivarianceConfig,
     OEQConfig,
 )
