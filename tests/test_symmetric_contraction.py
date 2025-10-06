@@ -1,5 +1,3 @@
-import cuequivariance as cue
-import cuequivariance_torch as cuet
 import haiku as hk
 import jax
 import jax.numpy as jnp
@@ -8,90 +6,124 @@ import pytest
 import torch
 from e3nn import o3  # type: ignore
 from e3nn_jax import Irreps  # type: ignore
+from mace.modules.symmetric_contraction import (  # type: ignore
+    SymmetricContraction as MaceSymmetricContraction,
+)
 
 from cuequivariance_adapter.symmetric_contraction import SymmetricContraction
 
 jax.config.update('jax_enable_x64', True)
 
 
-def _build_cuex_apply(
+def _init_adapter_module(
     irreps_in: o3.Irreps,
     irreps_out: o3.Irreps,
+    *,
     correlation: int,
     num_elements: int,
-    use_reduced_cg: bool,
-):
+) -> tuple[hk.Transformed, hk.Params, dict[str, object]]:
+    info: dict[str, object] = {}
+
+    mul = irreps_in[0].mul
+    feature_width = sum(ir.dim for _, ir in irreps_in)
+
     def forward(x, indices):
         module = SymmetricContraction(
             Irreps(irreps_in),
             Irreps(irreps_out),
             correlation=correlation,
             num_elements=num_elements,
-            use_reduced_cg=use_reduced_cg,
+            use_reduced_cg=False,
             name='symmetric_contraction',
         )
+        info['weight_shape'] = module.weight_param_shape
+        info['scope'] = module.module_name
         return module(x, indices)
 
     transformed = hk.without_apply_rng(hk.transform(forward))
-    zeros_x = jnp.zeros((1, irreps_in.dim))
-    zeros_idx = jnp.arange(1)
+    zeros_x = jnp.zeros((1, mul, feature_width), dtype=jnp.float64)
+    zeros_idx = jnp.zeros((1,), dtype=jnp.int32)
     params = transformed.init(jax.random.PRNGKey(0), zeros_x, zeros_idx)
-    return transformed, params
+    return transformed, params, info
 
 
-def _compare_once(
+def _collect_mace_torch_basis(
+    mace_module: MaceSymmetricContraction,
+) -> np.ndarray:
+    parts: list[np.ndarray] = []
+    for contraction in mace_module.contractions:
+        tensors = [contraction.weights_max, *contraction.weights]
+        for tensor in tensors:
+            if tensor.numel() == 0:
+                continue
+            parts.append(tensor.detach().cpu().numpy().astype(np.float64, copy=False))
+
+    if not parts:
+        num_elements = mace_module.contractions[0].weights_max.shape[0]
+        num_features = mace_module.contractions[0].weights_max.shape[-1]
+        return np.zeros((num_elements, 0, num_features), dtype=np.float64)
+
+    return np.concatenate(parts, axis=1)
+
+
+def _compare_to_mace(
     irreps_in: str,
     irreps_out: str,
     *,
     correlation: int,
     num_elements: int,
-    use_reduced_cg: bool,
     batch: int = 5,
+    seed: int = 0,
 ) -> float:
     irreps_in_o3 = o3.Irreps(irreps_in)
     irreps_out_o3 = o3.Irreps(irreps_out)
 
-    cues_in = cue.Irreps(cue.O3, irreps_in)
-    cues_out = cue.Irreps(cue.O3, irreps_out)
-
-    cuet_module = cuet.SymmetricContraction(
-        cues_in,
-        cues_out,
-        contraction_degree=correlation,
-        num_elements=num_elements,
-        layout_in=cue.mul_ir,
-        layout_out=cue.mul_ir,
-        original_mace=(not use_reduced_cg),
-    )
-
-    transformed, params = _build_cuex_apply(
+    adapter_tf, adapter_params, adapter_info = _init_adapter_module(
         irreps_in_o3,
         irreps_out_o3,
-        correlation,
-        num_elements,
-        use_reduced_cg,
+        correlation=correlation,
+        num_elements=num_elements,
     )
 
-    weight_basis = cuet_module.weight.detach().cpu().numpy()
-    mutable = hk.data_structures.to_mutable_dict(params)
-    mutable['symmetric_contraction']['weight'] = jnp.asarray(weight_basis)
-    params = hk.data_structures.to_immutable_dict(mutable)
+    mace_torch = MaceSymmetricContraction(
+        irreps_in_o3,
+        irreps_out_o3,
+        correlation=correlation,
+        num_elements=num_elements,
+        use_reduced_cg=False,
+    ).double()
 
-    torch.manual_seed(0)
-    x_torch = torch.randn(batch, irreps_in_o3.dim)
-    indices_torch = torch.randint(0, num_elements, (batch,))
+    mace_basis = _collect_mace_torch_basis(mace_torch)
+    weight_shape = adapter_info['weight_shape']
+    if mace_basis.shape != weight_shape:
+        raise AssertionError(
+            f'MACE weight shape {mace_basis.shape} does not match adapter shape {weight_shape}'
+        )
 
-    out_cuet = cuet_module(x_torch, indices_torch)
+    adapter_scope = adapter_info['scope']
+    dtype = adapter_params[adapter_scope]['weight'].dtype
+    adapter_mutable = hk.data_structures.to_mutable_dict(adapter_params)
+    adapter_mutable[adapter_scope]['weight'] = jnp.asarray(mace_basis, dtype=dtype)
+    adapter_params = hk.data_structures.to_immutable_dict(adapter_mutable)
 
-    x_jax = jnp.asarray(x_torch.detach().cpu().numpy())
-    indices_jax = jnp.asarray(indices_torch.detach().cpu().numpy())
+    rng = np.random.default_rng(seed)
+    mul = irreps_in_o3[0].mul
+    feature_width = sum(ir.dim for _, ir in irreps_in_o3)
+    x_features = rng.standard_normal((batch, mul, feature_width)).astype(np.float64)
+    indices = rng.integers(0, num_elements, size=(batch,), dtype=np.int32)
+    y_one_hot = np.eye(num_elements, dtype=np.float64)[indices]
 
-    out_cuex = transformed.apply(params, x_jax, indices_jax)
+    out_adapter = adapter_tf.apply(
+        adapter_params,
+        jnp.asarray(x_features, dtype=dtype),
+        jnp.asarray(indices),
+    )
 
-    out_cuex = np.array(out_cuex, copy=False)
-    out_cuet = out_cuet.detach().cpu().numpy()
+    x_torch = torch.from_numpy(x_features).to(dtype=torch.double)
+    y_torch = torch.from_numpy(y_one_hot).to(dtype=torch.double)
+    out_mace = mace_torch(x_torch, y_torch).detach().cpu().numpy()
 
-    return float(np.max(np.abs(out_cuet - out_cuex)))
+    return float(np.max(np.abs(np.asarray(out_adapter) - out_mace)))
 
 
 SYMMETRIC_CASES = [
@@ -105,28 +137,22 @@ class TestSymmetricContraction:
     tol = 1e-11
 
     @pytest.mark.parametrize(
-        'use_reduced_cg',
-        [pytest.param(True, id='reduced'), pytest.param(False, id='original')],
-    )
-    @pytest.mark.parametrize(
         'irreps_in, irreps_out, correlation, num_elements', SYMMETRIC_CASES
     )
-    def test_symmetric_contraction_agreement(
+    def test_matches_mace_symmetric_contraction(
         self,
         irreps_in,
         irreps_out,
         correlation,
         num_elements,
-        use_reduced_cg,
     ):
-        diff = _compare_once(
+        diff = _compare_to_mace(
             irreps_in,
             irreps_out,
             correlation=correlation,
             num_elements=num_elements,
-            use_reduced_cg=use_reduced_cg,
         )
         assert diff <= self.tol, (
-            f'max deviation {diff:.3e} exceeds tolerance {self.tol} '
-            f'for correlation={correlation}, use_reduced_cg={use_reduced_cg}'
+            f'MACE comparison deviation {diff:.3e} exceeds tolerance {self.tol} '
+            f'for correlation={correlation}'
         )

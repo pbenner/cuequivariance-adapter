@@ -12,7 +12,7 @@ from cuequivariance.group_theory.experimental.mace.symmetric_contractions import
 )
 from e3nn_jax import Irreps  # type: ignore
 
-from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
+from .utility import ir_mul_to_mul_ir
 
 
 class SymmetricContraction(hk.Module):
@@ -74,6 +74,9 @@ class SymmetricContraction(hk.Module):
 
         self.irreps_in_cue = cue.Irreps(cue.O3, irreps_in)
         self.irreps_out_cue = cue.Irreps(cue.O3, irreps_out)
+        self.feature_dim = sum(ir.dim for _, ir in self.irreps_in_o3)
+        self.num_features = self.mul
+        self.irreps_in_cue_base = self.irreps_in_cue.set_mul(1)
 
         degrees = tuple(range(1, correlation + 1))
         descriptor, projection = cue_mace_symmetric_contraction(
@@ -99,7 +102,14 @@ class SymmetricContraction(hk.Module):
         x: jnp.ndarray,
         indices: jnp.ndarray,
     ) -> jnp.ndarray:
+        x = jnp.asarray(x)
         dtype = x.dtype
+
+        if x.ndim != 3 or x.shape[1] != self.mul or x.shape[2] != self.feature_dim:
+            raise ValueError(
+                'SymmetricContraction expects input with shape '
+                f'(batch, {self.mul}, {self.feature_dim}); got {tuple(x.shape)}'
+            )
 
         basis_weights = hk.get_parameter(
             'weight',
@@ -129,25 +139,16 @@ class SymmetricContraction(hk.Module):
 
         selected_weights = weight_flat[indices]
 
-        weight_rep = cuex.RepArray(
-            self.weight_irreps,
-            selected_weights,
-            cue.ir_mul,
-        )
+        weight_rep = cuex.RepArray(self.weight_irreps, selected_weights, cue.ir_mul)
 
-        x_ir_mul = mul_ir_to_ir_mul(x, self.irreps_in_o3)
-        x_rep = cuex.RepArray(
-            self.irreps_in_cue,
-            jnp.asarray(x_ir_mul, dtype=dtype),
-            cue.ir_mul,
-        )
+        x_rep = self._features_to_rep(x, dtype)
 
         [out_ir_mul] = cuex.segmented_polynomial(
             self.descriptor.polynomial,
             [weight_rep.array, x_rep.array],
             [
                 jax.ShapeDtypeStruct(
-                    (*x.shape[:-1], self.irreps_out_o3.dim),
+                    (x.shape[0], self.irreps_out_o3.dim),
                     dtype,
                 )
             ],
@@ -157,3 +158,23 @@ class SymmetricContraction(hk.Module):
 
         out_mul_ir = ir_mul_to_mul_ir(out_ir_mul, self.irreps_out_o3)
         return out_mul_ir
+
+    # ------------------------------------------------------------------
+    def _features_to_rep(self, x: jnp.ndarray, dtype: jnp.dtype) -> cuex.RepArray:
+        segments: list[jnp.ndarray] = []
+        start = 0
+        for mul_ir in self.irreps_in_cue_base:
+            dim = mul_ir.ir.dim
+            seg = x[:, :, start : start + dim]
+            if seg.shape[-1] != dim:
+                raise ValueError('Input feature dimension mismatch with irreps.')
+            segments.append(jnp.swapaxes(seg, -2, -1))
+            start += dim
+
+        return cuex.from_segments(
+            self.irreps_in_cue,
+            segments,
+            (x.shape[0], self.num_features),
+            cue.ir_mul,
+            dtype=dtype,
+        )
