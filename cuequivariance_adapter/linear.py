@@ -133,19 +133,3 @@ class Linear(hk.Module):
         out_ir_mul = output_rep.array
         out_mul_ir = ir_mul_to_mul_ir(out_ir_mul, self.irreps_out_o3)
         return out_mul_ir
-
-    @classmethod
-    def import_from_torch(cls, torch_module, hk_params, scope):
-        hk_params = hk.data_structures.to_mutable_dict(hk_params)
-        if scope not in hk_params:
-            hk_params[scope] = {}
-
-        if hasattr(torch_module, 'weight') and torch_module.weight is not None:
-            hk_params[scope]['weight'] = jnp.array(
-                torch_module.weight.detach().cpu().numpy().reshape(-1)
-            )
-        if hasattr(torch_module, 'bias') and torch_module.bias is not None:
-            hk_params[scope]['bias'] = jnp.array(
-                torch_module.bias.detach().cpu().numpy().reshape(-1)
-            )
-        return hk.data_structures.to_immutable_dict(hk_params)
