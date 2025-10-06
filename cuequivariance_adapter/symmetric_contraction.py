@@ -16,7 +16,7 @@ from .utility import ir_mul_to_mul_ir
 
 
 class SymmetricContraction(hk.Module):
-    r"""Symmetric contraction evaluated with cuequivariance-jax.
+    r"""Symmetric contraction evaluated with cue-equivariant segmented polynomials.
 
     Given an input feature vector ``x`` whose irreps are described by
     :attr:`irreps_in`, an integer ``index`` selecting one of ``num_elements``
@@ -75,7 +75,6 @@ class SymmetricContraction(hk.Module):
         self.irreps_in_cue = cue.Irreps(cue.O3, irreps_in)
         self.irreps_out_cue = cue.Irreps(cue.O3, irreps_out)
         self.feature_dim = sum(ir.dim for _, ir in self.irreps_in_o3)
-        self.num_features = self.mul
         self.irreps_in_cue_base = self.irreps_in_cue.set_mul(1)
 
         degrees = tuple(range(1, correlation + 1))
@@ -102,14 +101,22 @@ class SymmetricContraction(hk.Module):
         x: jnp.ndarray,
         indices: jnp.ndarray,
     ) -> jnp.ndarray:
+        """Apply the symmetric contraction.
+
+        Parameters
+        ----------
+        x:
+            Input features shaped ``(batch, multiplicity, ell_dim_sum)`` where
+            ``ell_dim_sum`` is the total representation dimension of
+            :attr:`irreps_in`.
+        indices:
+            Either a rank-1 tensor with element indices or a rank-2 mixing
+            matrix ``(batch, num_elements)`` specifying per-node weights.
+        """
         x = jnp.asarray(x)
         dtype = x.dtype
 
-        if x.ndim != 3 or x.shape[1] != self.mul or x.shape[2] != self.feature_dim:
-            raise ValueError(
-                'SymmetricContraction expects input with shape '
-                f'(batch, {self.mul}, {self.feature_dim}); got {tuple(x.shape)}'
-            )
+        _validate_features(x, self.mul, self.feature_dim)
 
         basis_weights = hk.get_parameter(
             'weight',
@@ -126,23 +133,12 @@ class SymmetricContraction(hk.Module):
 
         weight_flat = weight_flat.reshape(self.num_elements, self.weight_numel)
 
-        indices = jnp.asarray(indices)
-        if indices.ndim == 1:
-            idx = indices.astype(jnp.int32)
-            if jnp.any(idx < 0) or jnp.any(idx >= self.num_elements):
-                raise ValueError('indices out of range for the available elements')
-            selected_weights = weight_flat[idx]
-        elif indices.ndim == 2:
-            if indices.shape[1] != self.num_elements:
-                raise ValueError(
-                    'Mixing matrix must have second dimension num_elements'
-                )
-            mix = jnp.asarray(indices, dtype=dtype)
-            selected_weights = mix @ weight_flat
-        else:
-            raise ValueError(
-                'indices must be rank-1 (element ids) or rank-2 (mixing matrix)'
-            )
+        selected_weights = _select_weights(
+            weight_flat,
+            indices,
+            dtype=dtype,
+            num_elements=self.num_elements,
+        )
 
         weight_rep = cuex.RepArray(self.weight_irreps, selected_weights, cue.ir_mul)
 
@@ -166,20 +162,54 @@ class SymmetricContraction(hk.Module):
 
     # ------------------------------------------------------------------
     def _features_to_rep(self, x: jnp.ndarray, dtype: jnp.dtype) -> cuex.RepArray:
+        """Convert ``(batch, mul, ell_sum)`` features to a cue ``RepArray``."""
         segments: list[jnp.ndarray] = []
-        start = 0
+        offset = 0
         for mul_ir in self.irreps_in_cue_base:
-            dim = mul_ir.ir.dim
-            seg = x[:, :, start : start + dim]
-            if seg.shape[-1] != dim:
+            width = mul_ir.ir.dim
+            seg = x[:, :, offset : offset + width]
+            if seg.shape[-1] != width:
                 raise ValueError('Input feature dimension mismatch with irreps.')
             segments.append(jnp.swapaxes(seg, -2, -1))
-            start += dim
+            offset += width
 
         return cuex.from_segments(
             self.irreps_in_cue,
             segments,
-            (x.shape[0], self.num_features),
+            (x.shape[0], self.mul),
             cue.ir_mul,
             dtype=dtype,
         )
+
+
+def _validate_features(x: jnp.ndarray, mul: int, feature_dim: int) -> None:
+    """Ensure features are provided in the expected MACE layout."""
+    if x.ndim != 3 or x.shape[1] != mul or x.shape[2] != feature_dim:
+        raise ValueError(
+            'SymmetricContraction expects input with shape '
+            f'(batch, {mul}, {feature_dim}); got {tuple(x.shape)}'
+        )
+
+
+def _select_weights(
+    weight_flat: jnp.ndarray,
+    selector: jnp.ndarray,
+    *,
+    dtype: jnp.dtype,
+    num_elements: int,
+) -> jnp.ndarray:
+    """Select or mix weight vectors according to ``selector``."""
+    selector = jnp.asarray(selector)
+    if selector.ndim == 1:
+        idx = selector.astype(jnp.int32)
+        if jnp.any(idx < 0) or jnp.any(idx >= num_elements):
+            raise ValueError('indices out of range for the available elements')
+        return weight_flat[idx]
+
+    if selector.ndim == 2:
+        if selector.shape[1] != num_elements:
+            raise ValueError('Mixing matrix must have second dimension num_elements')
+        mix = jnp.asarray(selector, dtype=dtype)
+        return mix @ weight_flat
+
+    raise ValueError('indices must be rank-1 (element ids) or rank-2 (mixing matrix)')
