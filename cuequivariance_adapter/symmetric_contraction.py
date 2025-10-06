@@ -127,17 +127,22 @@ class SymmetricContraction(hk.Module):
         weight_flat = weight_flat.reshape(self.num_elements, self.weight_numel)
 
         indices = jnp.asarray(indices)
-        if indices.ndim == 2:
-            indices = jnp.argmax(indices, axis=1)
-        if indices.ndim != 1:
+        if indices.ndim == 1:
+            idx = indices.astype(jnp.int32)
+            if jnp.any(idx < 0) or jnp.any(idx >= self.num_elements):
+                raise ValueError('indices out of range for the available elements')
+            selected_weights = weight_flat[idx]
+        elif indices.ndim == 2:
+            if indices.shape[1] != self.num_elements:
+                raise ValueError(
+                    'Mixing matrix must have second dimension num_elements'
+                )
+            mix = jnp.asarray(indices, dtype=dtype)
+            selected_weights = mix @ weight_flat
+        else:
             raise ValueError(
-                'indices must be a rank-1 array or a batch of one-hot vectors'
+                'indices must be rank-1 (element ids) or rank-2 (mixing matrix)'
             )
-        indices = indices.astype(jnp.int32)
-        if jnp.any(indices < 0) or jnp.any(indices >= self.num_elements):
-            raise ValueError('indices out of range for the available elements')
-
-        selected_weights = weight_flat[indices]
 
         weight_rep = cuex.RepArray(self.weight_irreps, selected_weights, cue.ir_mul)
 
