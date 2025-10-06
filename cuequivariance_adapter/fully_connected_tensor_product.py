@@ -61,7 +61,6 @@ class FullyConnectedTensorProduct(hk.Module):
         irreps_out: Irreps,
         shared_weights: bool = True,
         internal_weights: bool = True,
-        cueq_config=None,
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
