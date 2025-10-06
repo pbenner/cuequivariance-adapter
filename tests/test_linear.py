@@ -166,6 +166,7 @@ def _compare_linear(
 LINEAR_CASES = [
     ('1x0e + 1x1o', '2x0e + 1x1o'),
     ('2x1e', '1x0e + 2x1e'),
+    ('64x0e + 64x1o + 64x2e + 64x3o', '64x0e + 64x1o + 64x2e'),
 ]
 
 

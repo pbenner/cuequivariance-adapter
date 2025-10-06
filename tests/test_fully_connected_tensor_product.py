@@ -179,6 +179,11 @@ def compare_once(
 FULLY_CONNECTED_CASES = [
     ('1x0e + 1x1o', '1x0e + 1x1o', '2x0e + 2x1o'),
     ('1x2e', '1x1e + 1x2e', '1x1o + 1x2o + 1x3e'),
+    (
+        '64x0e + 64x1o + 64x2e + 64x3o',
+        '64x0e + 64x1o + 64x2e + 64x3o',
+        '64x0e + 64x1o + 64x2e',
+    ),
 ]
 
 WEIGHT_CONFIGS = [

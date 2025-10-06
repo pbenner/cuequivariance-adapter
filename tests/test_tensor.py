@@ -226,6 +226,11 @@ TENSOR_PRODUCT_CASES = [
     ('3x1e', '1x0e + 1x1e + 1x2e', '3x0e + 6x1e + 3x2e'),
     ('1x2o + 2x1e', '1x0e + 1x1o', '3x1e + 3x2o + 1x3e'),
     ('2x0e', '2x0e', '2x0e'),
+    (
+        '32x0e + 32x1o',
+        '32x0e + 32x1o',
+        '64x0e + 64x1o + 32x2e',
+    ),
 ]
 
 WEIGHT_CONFIGS = [
