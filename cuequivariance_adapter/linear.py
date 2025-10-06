@@ -6,7 +6,7 @@ import cuequivariance as cue
 import cuequivariance_jax as cuex
 import haiku as hk
 import jax.numpy as jnp
-from e3nn_jax import Irreps
+from e3nn_jax import Irreps  # type: ignore
 
 from .utility import ir_mul_to_mul_ir, mul_ir_to_ir_mul
 
