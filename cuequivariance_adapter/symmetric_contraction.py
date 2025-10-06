@@ -36,8 +36,11 @@ class SymmetricContraction(hk.Module):
     the familiar e3nn ``mul_ir`` layout; cue handles the segmented-polynomial
     evaluation in ``ir_mul`` order internally.  Depending on ``use_reduced_cg``
     the weights are either parameterised in the reduced CG basis or projected to
-    the original MACE basis using the matrices returned by
-    :mod:`cuequivariance`.
+    the original MACE basis using the matrices returned by :mod:`cuequivariance`.
+    The unreduced MACE basis is overcomplete, so when ``use_reduced_cg=False``
+    the learnable weight tensor gains extra columns corresponding to that larger
+    basis before the projection collapses it back to the reduced coordinates
+    consumed by the descriptor.
     """
 
     def __init__(
