@@ -8,6 +8,7 @@ import torch
 from e3nn import o3
 from mace.modules.irreps_tools import tp_out_irreps_with_instructions
 from mace.modules.wrapper_ops import CuEquivarianceConfig, TensorProduct
+from mace.tools.scatter import scatter_sum
 
 
 def main() -> None:
@@ -86,13 +87,8 @@ def main() -> None:
     mji_e3nn = tp_e3nn(node_feats[sender], edge_attrs, edge_weights)
     mji_cue = tp_cue(node_feats[sender], edge_attrs, edge_weights)
 
-    def scatter_sum(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
-        out = torch.zeros(dim_size, src.shape[-1], dtype=src.dtype)
-        out.index_add_(0, index, src)
-        return out
-
-    message_e3nn = scatter_sum(mji_e3nn, receiver, num_nodes)
-    message_cue = scatter_sum(mji_cue, receiver, num_nodes)
+    message_e3nn = scatter_sum(mji_e3nn, receiver, dim=0, dim_size=num_nodes)
+    message_cue = scatter_sum(mji_cue, receiver, dim=0, dim_size=num_nodes)
 
     print('\n--- Graph-style usage ---')
     print('edge_index (sender -> receiver):')
