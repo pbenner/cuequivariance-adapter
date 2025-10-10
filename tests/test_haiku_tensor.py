@@ -15,7 +15,9 @@ from mace.modules.wrapper_ops import (  # type: ignore
     OEQConfig,
 )
 
-from cuequivariance_adapter.tensor_product import TensorProduct as TensorProductCuex
+from cuequivariance_adapter.haiku.tensor_product import (
+    TensorProduct as TensorProductCuex,
+)
 
 jax.config.update('jax_enable_x64', True)
 

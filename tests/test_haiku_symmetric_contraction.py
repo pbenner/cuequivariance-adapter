@@ -9,13 +9,12 @@ import pytest
 import torch
 from e3nn import o3  # type: ignore
 from e3nn_jax import Irreps  # type: ignore
-
 from mace.modules.wrapper_ops import (  # type: ignore
     CuEquivarianceConfig,
     SymmetricContractionWrapper,
 )
 
-from cuequivariance_adapter.symmetric_contraction import SymmetricContraction
+from cuequivariance_adapter.haiku.symmetric_contraction import SymmetricContraction
 
 jax.config.update('jax_enable_x64', True)
 
@@ -31,7 +30,7 @@ def _init_adapter_module(
     """Instantiate the Haiku symmetric contraction with predictable params.
 
     The helper builds a transformed Haiku module that mirrors the layout used by
-    :class:`cuequivariance_adapter.symmetric_contraction.SymmetricContraction`.
+    :class:`cuequivariance_adapter.haiku.symmetric_contraction.SymmetricContraction`.
     It also records the parameter scope and shape so tests can swap in weights
     copied from the PyTorch reference implementation before running the apply
     function.
@@ -152,7 +151,9 @@ def _compare_to_cuet(
             (batch,), element_idx, dtype=torch.int32, device=x_flat.device
         )
         partial = cue_torch(x_flat, elem_indices)
-        out_cuet_flat = out_cuet_flat + mix_torch[:, element_idx : element_idx + 1] * partial
+        out_cuet_flat = (
+            out_cuet_flat + mix_torch[:, element_idx : element_idx + 1] * partial
+        )
 
     out_adapter_np = np.asarray(out_adapter)
     out_cuet_np = out_cuet_flat.detach().cpu().numpy()

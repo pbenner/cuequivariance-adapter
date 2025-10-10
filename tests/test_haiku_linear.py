@@ -11,7 +11,7 @@ from e3nn_jax import Irreps
 from mace.modules.wrapper_ops import CuEquivarianceConfig
 from mace.modules.wrapper_ops import Linear as LinearWrapper
 
-from cuequivariance_adapter.linear import Linear as LinearCuex
+from cuequivariance_adapter.haiku.linear import Linear as LinearCuex
 
 jax.config.update('jax_enable_x64', True)
 

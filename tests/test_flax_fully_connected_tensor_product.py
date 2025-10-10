@@ -1,6 +1,5 @@
 import cuequivariance as cue
 import cuequivariance_torch as cuet
-import haiku as hk
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -8,15 +7,16 @@ import pytest
 import torch
 from e3nn import o3
 from e3nn_jax import Irreps
+from flax.core import freeze, unfreeze
 
-from cuequivariance_adapter.fully_connected_tensor_product import (
-    FullyConnectedTensorProduct as FullyConnectedTensorProductCuex,
+from cuequivariance_adapter.flax.fully_connected_tensor_product import (
+    FullyConnectedTensorProduct as FullyConnectedTensorProductFlax,
 )
 
 jax.config.update('jax_enable_x64', True)
 
 
-def _build_cuex_apply(
+def _build_flax_apply(
     irreps_in1: o3.Irreps,
     irreps_in2: o3.Irreps,
     irreps_out: o3.Irreps,
@@ -24,65 +24,53 @@ def _build_cuex_apply(
     shared_weights: bool,
     internal_weights: bool,
 ):
-    recorded: dict[str, int] = {}
-
-    def forward(x1, x2, weights):
-        module = FullyConnectedTensorProductCuex(
-            Irreps(irreps_in1),
-            Irreps(irreps_in2),
-            Irreps(irreps_out),
-            shared_weights=shared_weights,
-            internal_weights=internal_weights,
-        )
-        recorded['numel'] = module.weight_numel
-        return module(x1, x2, weights)
-
-    transformed = hk.without_apply_rng(hk.transform(forward))
+    module = FullyConnectedTensorProductFlax(
+        Irreps(irreps_in1),
+        Irreps(irreps_in2),
+        Irreps(irreps_out),
+        shared_weights=shared_weights,
+        internal_weights=internal_weights,
+    )
     zeros1 = jnp.zeros((1, irreps_in1.dim))
     zeros2 = jnp.zeros((1, irreps_in2.dim))
-    if internal_weights:
-        params = transformed.init(jax.random.PRNGKey(0), zeros1, zeros2, None)
-    else:
-        zerosw = jnp.zeros((1, weight_numel))
-        params = transformed.init(jax.random.PRNGKey(0), zeros1, zeros2, zerosw)
+    init_weights = None
+    if not internal_weights:
+        init_weights = jnp.zeros((1, weight_numel))
+    params = module.init(jax.random.PRNGKey(0), zeros1, zeros2, init_weights)
 
-    cuex_numel = recorded.get('numel')
-    if cuex_numel != weight_numel:
+    flax_numel = module.apply(params, method=lambda m: m.weight_numel)
+    if flax_numel != weight_numel:
         raise ValueError(
-            f'cuex weight_numel {cuex_numel} does not match e3nn weight_numel {weight_numel}'
+            f'flax weight_numel {flax_numel} does not match e3nn weight_numel {weight_numel}'
         )
 
-    weight_location: tuple[str, str] | None = None
-    if internal_weights:
-        for module_name, module_params in params.items():
-            if 'weight' in module_params:
-                weight_location = (module_name, 'weight')
-                break
-        if weight_location is None:
-            raise RuntimeError('FullyConnectedTensorProduct cuex internal weight not found')
-
     def apply_fn(x1, x2, weights):
-        nonlocal params
-        next_params = params
+        variables = params
         call_weights = weights
         if internal_weights:
             if weights is not None:
-                mutable = hk.data_structures.to_mutable_dict(params)
-                weight_value = jnp.asarray(weights)
-                if weight_value.ndim == 1:
-                    weight_value = weight_value[jnp.newaxis, :]
-                elif weight_value.ndim == 2:
-                    if weight_value.shape[0] != 1:
-                        raise ValueError('Internal weights expect a single vector')
-                    weight_value = weight_value[:1]
+                weight_array = jnp.asarray(weights)
+                if weight_array.ndim == 1:
+                    weight_array = weight_array[jnp.newaxis, :]
+                elif weight_array.ndim == 2:
+                    if weight_array.shape[0] != 1:
+                        raise ValueError(
+                            'Internal weights expect a single shared weight vector'
+                        )
+                    weight_array = weight_array[:1]
                 else:
                     raise ValueError('Internal weights must be rank 1 or 2')
-                module_name, param_name = weight_location
-                mutable[module_name][param_name] = weight_value
-                next_params = hk.data_structures.to_immutable_dict(mutable)
-                params = next_params
+                mutable = unfreeze(params)
+                mutable['params']['weight'] = weight_array
+                variables = freeze(mutable)
             call_weights = None
-        return transformed.apply(next_params, x1, x2, call_weights)
+        else:
+            if weights is None:
+                raise ValueError('External weights must be provided')
+            call_weights = jnp.asarray(weights)
+        x1_array = jnp.asarray(x1)
+        x2_array = jnp.asarray(x2)
+        return module.apply(variables, x1_array, x2_array, call_weights)
 
     return apply_fn
 
@@ -119,7 +107,7 @@ def compare_once(
         internal_weights=internal_weights,
     )
 
-    cuex_apply = _build_cuex_apply(
+    flax_apply = _build_flax_apply(
         irreps1_o3,
         irreps2_o3,
         irreps_out_o3,
@@ -154,7 +142,9 @@ def compare_once(
 
     x1_jax = jnp.asarray(x1.detach().cpu().numpy())
     x2_jax = jnp.asarray(x2.detach().cpu().numpy())
-    weights_jax = jnp.asarray(weight_tensor.detach().cpu().numpy())
+    weights_jax = None
+    if not internal_weights:
+        weights_jax = jnp.asarray(weight_tensor.detach().cpu().numpy())
 
     if weights_arg_e3nn is None:
         out_e3nn = tp_e3nn(x1, x2)
@@ -166,14 +156,18 @@ def compare_once(
     else:
         out_cue = tp_cue(x1, x2, weights_arg_cue)
 
-    out_cuex = cuex_apply(x1_jax, x2_jax, weights_jax)
-    out_cuex = torch.from_numpy(np.array(out_cuex, copy=True))
+    out_flax = flax_apply(
+        x1_jax,
+        x2_jax,
+        weight_tensor.detach().cpu().numpy() if internal_weights else weights_jax,
+    )
+    out_flax = torch.from_numpy(np.array(out_flax, copy=True))
 
     diff_cuet = (out_e3nn - out_cue).abs().max().item()
-    diff_cuex = (out_e3nn - out_cuex).abs().max().item()
-    diff_cross = (out_cue - out_cuex).abs().max().item()
+    diff_flax = (out_e3nn - out_flax).abs().max().item()
+    diff_cross = (out_cue - out_flax).abs().max().item()
 
-    return max(diff_cuet, diff_cuex, diff_cross)
+    return max(diff_cuet, diff_flax, diff_cross)
 
 
 FULLY_CONNECTED_CASES = [
@@ -193,13 +187,18 @@ WEIGHT_CONFIGS = [
 ]
 
 
-class TestFullyConnectedTensorProduct:
+class TestFlaxFullyConnectedTensorProduct:
     tol = 1e-12
 
     @pytest.mark.parametrize('shared_weights, internal_weights', WEIGHT_CONFIGS)
     @pytest.mark.parametrize('irreps1, irreps2, irreps_out', FULLY_CONNECTED_CASES)
     def test_fully_connected_agreement(
-        self, irreps1, irreps2, irreps_out, shared_weights, internal_weights
+        self,
+        irreps1,
+        irreps2,
+        irreps_out,
+        shared_weights,
+        internal_weights,
     ):
         diff = compare_once(
             irreps1,
