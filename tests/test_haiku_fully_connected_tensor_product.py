@@ -1,17 +1,14 @@
-import cuequivariance as cue
-import cuequivariance_torch as cuet
 import haiku as hk
 import jax
 import jax.numpy as jnp
-import numpy as np
 import pytest
-import torch
 from e3nn import o3
 from e3nn_jax import Irreps
 
 from cuequivariance_adapter.haiku.fully_connected_tensor_product import (
     FullyConnectedTensorProduct as FullyConnectedTensorProductCuex,
 )
+from tests._fully_connected_test_utils import run_fully_connected_comparison
 
 jax.config.update('jax_enable_x64', True)
 
@@ -89,95 +86,6 @@ def _build_cuex_apply(
     return apply_fn
 
 
-def compare_once(
-    irreps1: str,
-    irreps2: str,
-    irreps_out: str,
-    *,
-    shared_weights: bool,
-    internal_weights: bool,
-    batch: int = 4,
-) -> float:
-    if internal_weights and not shared_weights:
-        raise ValueError('internal_weights=True requires shared_weights=True')
-
-    irreps1_o3 = o3.Irreps(irreps1)
-    irreps2_o3 = o3.Irreps(irreps2)
-    irreps_out_o3 = o3.Irreps(irreps_out)
-
-    tp_e3nn = o3.FullyConnectedTensorProduct(
-        irreps1_o3,
-        irreps2_o3,
-        irreps_out_o3,
-        shared_weights=shared_weights,
-        internal_weights=internal_weights,
-    )
-
-    tp_cue = cuet.FullyConnectedTensorProduct(
-        cue.Irreps(cue.O3, irreps1_o3),
-        cue.Irreps(cue.O3, irreps2_o3),
-        cue.Irreps(cue.O3, irreps_out_o3),
-        shared_weights=shared_weights,
-        internal_weights=internal_weights,
-    )
-
-    cuex_apply = _build_cuex_apply(
-        irreps1_o3,
-        irreps2_o3,
-        irreps_out_o3,
-        tp_e3nn.weight_numel,
-        shared_weights=shared_weights,
-        internal_weights=internal_weights,
-    )
-
-    torch.manual_seed(0)
-    x1 = torch.randn(batch, irreps1_o3.dim)
-    x2 = torch.randn(batch, irreps2_o3.dim)
-
-    if internal_weights:
-        base_weights = tp_e3nn.weight.detach().clone()
-        weight_tensor = base_weights.view(1, -1)
-        with torch.no_grad():
-            if tp_cue.weight is None:
-                raise RuntimeError('cue FullyConnectedTensorProduct missing weights')
-            tp_cue.weight.copy_(weight_tensor)
-        weights_arg_e3nn = None
-        weights_arg_cue = None
-    elif shared_weights:
-        base_weights = torch.randn(1, tp_e3nn.weight_numel)
-        weights_arg_e3nn = base_weights.view(-1)
-        weights_arg_cue = base_weights
-        weight_tensor = base_weights
-    else:
-        base_weights = torch.randn(batch, tp_e3nn.weight_numel)
-        weights_arg_e3nn = base_weights
-        weights_arg_cue = base_weights
-        weight_tensor = base_weights
-
-    x1_jax = jnp.asarray(x1.detach().cpu().numpy())
-    x2_jax = jnp.asarray(x2.detach().cpu().numpy())
-    weights_jax = jnp.asarray(weight_tensor.detach().cpu().numpy())
-
-    if weights_arg_e3nn is None:
-        out_e3nn = tp_e3nn(x1, x2)
-    else:
-        out_e3nn = tp_e3nn(x1, x2, weights_arg_e3nn)
-
-    if weights_arg_cue is None:
-        out_cue = tp_cue(x1, x2)
-    else:
-        out_cue = tp_cue(x1, x2, weights_arg_cue)
-
-    out_cuex = cuex_apply(x1_jax, x2_jax, weights_jax)
-    out_cuex = torch.from_numpy(np.array(out_cuex, copy=True))
-
-    diff_cuet = (out_e3nn - out_cue).abs().max().item()
-    diff_cuex = (out_e3nn - out_cuex).abs().max().item()
-    diff_cross = (out_cue - out_cuex).abs().max().item()
-
-    return max(diff_cuet, diff_cuex, diff_cross)
-
-
 FULLY_CONNECTED_CASES = [
     ('1x0e + 1x1o', '1x0e + 1x1o', '2x0e + 2x1o'),
     ('1x2e', '1x1e + 1x2e', '1x1o + 1x2o + 1x3e'),
@@ -203,7 +111,8 @@ class TestFullyConnectedTensorProduct:
     def test_fully_connected_agreement(
         self, irreps1, irreps2, irreps_out, shared_weights, internal_weights
     ):
-        diff = compare_once(
+        diff = run_fully_connected_comparison(
+            _build_cuex_apply,
             irreps1,
             irreps2,
             irreps_out,
