@@ -9,6 +9,7 @@ from cuequivariance_adapter.haiku.fully_connected_tensor_product import (
     FullyConnectedTensorProduct as FullyConnectedTensorProductCuex,
 )
 from tests._fully_connected_test_utils import run_fully_connected_comparison
+from tests._haiku_builder_utils import find_weight_parameter, resolve_haiku_weights
 
 jax.config.update('jax_enable_x64', True)
 
@@ -51,36 +52,20 @@ def _build_cuex_apply(
 
     weight_location: tuple[str, str] | None = None
     if internal_weights:
-        for module_name, module_params in params.items():
-            if 'weight' in module_params:
-                weight_location = (module_name, 'weight')
-                break
-        if weight_location is None:
-            raise RuntimeError(
-                'FullyConnectedTensorProduct cuex internal weight not found'
-            )
+        weight_location = find_weight_parameter(params)
 
     def apply_fn(x1, x2, weights):
         nonlocal params
-        next_params = params
-        call_weights = weights
-        if internal_weights:
-            if weights is not None:
-                mutable = hk.data_structures.to_mutable_dict(params)
-                weight_value = jnp.asarray(weights)
-                if weight_value.ndim == 1:
-                    weight_value = weight_value[jnp.newaxis, :]
-                elif weight_value.ndim == 2:
-                    if weight_value.shape[0] != 1:
-                        raise ValueError('Internal weights expect a single vector')
-                    weight_value = weight_value[:1]
-                else:
-                    raise ValueError('Internal weights must be rank 1 or 2')
-                module_name, param_name = weight_location
-                mutable[module_name][param_name] = weight_value
-                next_params = hk.data_structures.to_immutable_dict(mutable)
-                params = next_params
-            call_weights = None
+        next_params, call_weights = resolve_haiku_weights(
+            params,
+            weights,
+            batch_size=x1.shape[0],
+            internal_weights=internal_weights,
+            shared_weights=shared_weights,
+            weight_numel=weight_numel,
+            weight_location=weight_location,
+        )
+        params = next_params
         return transformed.apply(next_params, x1, x2, call_weights)
 
     return apply_fn
@@ -111,7 +96,7 @@ class TestFullyConnectedTensorProduct:
     def test_fully_connected_agreement(
         self, irreps1, irreps2, irreps_out, shared_weights, internal_weights
     ):
-        diff = run_fully_connected_comparison(
+        result = run_fully_connected_comparison(
             _build_cuex_apply,
             irreps1,
             irreps2,
@@ -119,6 +104,7 @@ class TestFullyConnectedTensorProduct:
             shared_weights=shared_weights,
             internal_weights=internal_weights,
         )
+        diff = result.max_diff
         assert diff <= self.tol, (
             f'max deviation {diff:.3e} exceeds tolerance {self.tol} '
             f'for {irreps1} ⊗ {irreps2} → {irreps_out}'

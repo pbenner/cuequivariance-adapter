@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 import cuequivariance as cue
@@ -12,12 +13,32 @@ import torch
 from e3nn import o3
 
 FullyConnectedApply = Callable[
-    [o3.Irreps, o3.Irreps, o3.Irreps, int, bool, bool], Callable[[jnp.ndarray, jnp.ndarray, np.ndarray | None], np.ndarray | jnp.ndarray]
+    [o3.Irreps, o3.Irreps, o3.Irreps, int, bool, bool],
+    Callable[[jnp.ndarray, jnp.ndarray, np.ndarray | None], np.ndarray | jnp.ndarray],
 ]
 
 
+@dataclass
+class FullyConnectedComparisonResult:
+    diff_e3nn_cue: float
+    diff_e3nn_adapter: float
+    diff_cue_adapter: float
+    out_e3nn: torch.Tensor
+    out_cue: torch.Tensor
+    out_adapter: torch.Tensor
+    x1: torch.Tensor
+    x2: torch.Tensor
+    weight_tensor: torch.Tensor
+    shared_weights: bool
+    internal_weights: bool
+
+    @property
+    def max_diff(self) -> float:
+        return max(self.diff_e3nn_cue, self.diff_e3nn_adapter, self.diff_cue_adapter)
+
+
 def run_fully_connected_comparison(
-    build_apply: callable,
+    build_apply: FullyConnectedApply,
     irreps1: str,
     irreps2: str,
     irreps_out: str,
@@ -108,4 +129,16 @@ def run_fully_connected_comparison(
     diff_adapter = (out_e3nn - out_adapter).abs().max().item()
     diff_cross = (out_cue - out_adapter).abs().max().item()
 
-    return max(diff_cue, diff_adapter, diff_cross)
+    return FullyConnectedComparisonResult(
+        diff_e3nn_cue=diff_cue,
+        diff_e3nn_adapter=diff_adapter,
+        diff_cue_adapter=diff_cross,
+        out_e3nn=out_e3nn,
+        out_cue=out_cue,
+        out_adapter=out_adapter,
+        x1=x1,
+        x2=x2,
+        weight_tensor=weight_tensor,
+        shared_weights=shared_weights,
+        internal_weights=internal_weights,
+    )

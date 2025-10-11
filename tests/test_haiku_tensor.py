@@ -7,6 +7,7 @@ from e3nn import o3  # type: ignore
 from cuequivariance_adapter.haiku.tensor_product import (
     TensorProduct as TensorProductCuex,
 )
+from tests._haiku_builder_utils import find_weight_parameter, resolve_haiku_weights
 from tests._tensor_product_test_utils import run_tensor_product_comparison
 
 jax.config.update('jax_enable_x64', True)
@@ -57,38 +58,20 @@ def _build_cuex_apply(
 
     weight_location: tuple[str, str] | None = None
     if internal_weights:
-        for module_name, module_params in params.items():
-            if 'weight' in module_params:
-                weight_location = (module_name, 'weight')
-                break
-        if weight_location is None:
-            raise RuntimeError('TensorProductCuex internal weight parameter not found')
+        weight_location = find_weight_parameter(params)
 
     def apply_fn(x1, x2, weights):
         nonlocal params
-        call_weights = weights
-        next_params = params
-        if internal_weights:
-            if weights is not None:
-                mutable = hk.data_structures.to_mutable_dict(params)
-                weight_value = jnp.asarray(weights)
-                if weight_value.ndim == 1:
-                    weight_value = weight_value[jnp.newaxis, :]
-                elif weight_value.ndim == 2:
-                    if weight_value.shape[0] != 1:
-                        raise ValueError(
-                            'TensorProductCuex internal weights expect a single shared weight vector'
-                        )
-                    weight_value = weight_value[:1]
-                else:
-                    raise ValueError(
-                        'TensorProductCuex internal weights must be rank 1 or 2'
-                    )
-                module_name, param_name = weight_location
-                mutable[module_name][param_name] = weight_value
-                next_params = hk.data_structures.to_immutable_dict(mutable)
-                params = next_params
-            call_weights = None
+        next_params, call_weights = resolve_haiku_weights(
+            params,
+            weights,
+            batch_size=x1.shape[0],
+            internal_weights=internal_weights,
+            shared_weights=shared_weights,
+            weight_numel=weight_numel,
+            weight_location=weight_location,
+        )
+        params = next_params
         return transformed.apply(next_params, x1, x2, call_weights)
 
     return apply_fn
@@ -138,7 +121,7 @@ class TestTensorProduct:
     def test_tensor_product_agreement(
         self, irreps1, irreps2, irreps_target, shared_weights, internal_weights
     ):
-        diff = run_tensor_product_comparison(
+        result = run_tensor_product_comparison(
             _build_cuex_apply,
             irreps1,
             irreps2,
@@ -146,6 +129,7 @@ class TestTensorProduct:
             shared_weights=shared_weights,
             internal_weights=internal_weights,
         )
+        diff = result.max_diff
         assert diff <= self.tol, (
             f'max deviation {diff:.3e} exceeds tolerance {self.tol} '
             f'for {irreps1} ⊗ {irreps2} → {irreps_target}'

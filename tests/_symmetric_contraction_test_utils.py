@@ -31,6 +31,20 @@ AdapterBuilder = Callable[
 ]
 
 
+@dataclass
+class SymmetricComparisonResult:
+    diff: float
+    adapter_output: np.ndarray
+    cue_output: np.ndarray
+    features: np.ndarray
+    selector: np.ndarray
+    use_per_node_mix: bool
+
+    @property
+    def max_diff(self) -> float:
+        return self.diff
+
+
 def run_symmetric_contraction_comparison(
     build_adapter: AdapterBuilder,
     irreps_in: str,
@@ -42,8 +56,8 @@ def run_symmetric_contraction_comparison(
     batch: int = 5,
     seed: int = 0,
     use_per_node_mix: bool = False,
-) -> float:
-    """Return the maximum deviation between the adapter and cuet reference."""
+) -> SymmetricComparisonResult:
+    """Return comparison data between the adapter and cuet reference."""
 
     irreps_in_o3 = o3.Irreps(irreps_in)
     irreps_out_o3 = o3.Irreps(irreps_out)
@@ -105,7 +119,15 @@ def run_symmetric_contraction_comparison(
         )
 
     out_cue = out_cuet_flat.detach().cpu().numpy()
-    return float(np.max(np.abs(out_adapter - out_cue)))
+    diff = float(np.max(np.abs(out_adapter - out_cue)))
+    return SymmetricComparisonResult(
+        diff=diff,
+        adapter_output=out_adapter,
+        cue_output=out_cue,
+        features=x_features,
+        selector=selector,
+        use_per_node_mix=use_per_node_mix,
+    )
 
 
 def build_flax_symmetric_adapter(

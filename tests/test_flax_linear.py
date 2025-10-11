@@ -4,12 +4,12 @@ import pytest
 import torch
 from e3nn import o3
 from e3nn_jax import Irreps
-from flax.core import freeze, unfreeze
 from mace.modules.wrapper_ops import CuEquivarianceConfig
 from mace.modules.wrapper_ops import Linear as LinearWrapper
 
 from cuequivariance_adapter.flax.linear import Linear as LinearFlax
 from tests._linear_test_utils import run_linear_comparison
+from tests._flax_builder_utils import resolve_flax_weights
 
 jax.config.update('jax_enable_x64', True)
 
@@ -40,28 +40,15 @@ def _build_flax_apply(
         )
 
     def apply_fn(x, weights):
-        variables = params
-        call_weights = weights
-        if internal_weights:
-            if weights is not None:
-                weight_array = jnp.asarray(weights)
-                if weight_array.ndim == 2:
-                    if weight_array.shape[0] != 1:
-                        raise ValueError(
-                            'Internal weights expect a single shared vector'
-                        )
-                    weight_array = weight_array[:1]
-                elif weight_array.ndim == 1:
-                    weight_array = weight_array[jnp.newaxis, :]
-                else:
-                    raise ValueError('Internal weights must have rank 1 or 2')
-                mutable = unfreeze(params)
-                mutable['params']['weight'] = weight_array
-                variables = freeze(mutable)
-            call_weights = None
-        else:
-            call_weights = jnp.asarray(weights)
         x_array = jnp.asarray(x)
+        variables, call_weights = resolve_flax_weights(
+            params,
+            weights,
+            batch_size=x_array.shape[0],
+            internal_weights=internal_weights,
+            shared_weights=shared_weights,
+            weight_numel=weight_numel,
+        )
         return module.apply(variables, x_array, call_weights)
 
     return apply_fn

@@ -35,7 +35,7 @@ class TestFlaxSymmetricContraction:
         num_elements,
         use_reduced_cg,
     ):
-        diff = run_symmetric_contraction_comparison(
+        result = run_symmetric_contraction_comparison(
             build_flax_symmetric_adapter,
             irreps_in,
             irreps_out,
@@ -43,6 +43,7 @@ class TestFlaxSymmetricContraction:
             num_elements=num_elements,
             use_reduced_cg=use_reduced_cg,
         )
+        diff = result.max_diff
         assert diff <= self.tol, (
             f'cue comparison deviation {diff:.3e} exceeds tolerance {self.tol} '
             f'for correlation={correlation} use_reduced_cg={use_reduced_cg}'

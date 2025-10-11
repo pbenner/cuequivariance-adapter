@@ -9,6 +9,7 @@ from mace.modules.wrapper_ops import CuEquivarianceConfig
 from mace.modules.wrapper_ops import Linear as LinearWrapper
 
 from cuequivariance_adapter.haiku.linear import Linear as LinearCuex
+from tests._haiku_builder_utils import find_weight_parameter, resolve_haiku_weights
 from tests._linear_test_utils import run_linear_comparison
 
 jax.config.update('jax_enable_x64', True)
@@ -49,35 +50,22 @@ def _build_cuex_apply(
 
     weight_location: tuple[str, str] | None = None
     if internal_weights:
-        for module_name, module_params in params.items():
-            if 'weight' in module_params:
-                weight_location = (module_name, 'weight')
-                break
-        if weight_location is None:
-            raise RuntimeError('Linear cuex internal weight parameter not found')
+        weight_location = find_weight_parameter(params)
 
     def apply_fn(x, weights):
         nonlocal params
-        next_params = params
-        call_weights = weights
-        if internal_weights:
-            if weights is not None:
-                weight_value = jnp.asarray(weights)
-                if weight_value.ndim == 2:
-                    if weight_value.shape[0] != 1:
-                        raise ValueError('Internal weights expect a single vector')
-                    weight_value = weight_value.reshape(-1)
-                elif weight_value.ndim != 1:
-                    raise ValueError('Internal weights must be rank 1 or 2')
-                mutable = hk.data_structures.to_mutable_dict(params)
-                module_name, param_name = weight_location
-                mutable[module_name][param_name] = weight_value
-                next_params = hk.data_structures.to_immutable_dict(mutable)
-                params = next_params
-            call_weights = None
-        else:
-            call_weights = jnp.asarray(weights)
         x_array = jnp.asarray(x)
+        next_params, call_weights = resolve_haiku_weights(
+            params,
+            weights,
+            batch_size=x_array.shape[0],
+            internal_weights=internal_weights,
+            shared_weights=shared_weights,
+            weight_numel=weight_numel,
+            weight_location=weight_location,
+            flatten_internal=True,
+        )
+        params = next_params
         return transformed.apply(next_params, x_array, call_weights)
 
     return apply_fn
