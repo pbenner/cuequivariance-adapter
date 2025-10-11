@@ -1,23 +1,13 @@
-from typing import List, Optional
-
-import cuequivariance as cue
-import cuequivariance_torch as cuet
 import jax
 import jax.numpy as jnp
-import numpy as np
 import pytest
-import torch
 from e3nn import o3  # type: ignore
 from flax.core import freeze, unfreeze
-from mace.modules.irreps_tools import tp_out_irreps_with_instructions  # type: ignore
-from mace.modules.wrapper_ops import (  # type: ignore
-    CuEquivarianceConfig,
-    OEQConfig,
-)
 
 from cuequivariance_adapter.flax.tensor_product import (
     TensorProduct as TensorProductFlax,
 )
+from tests._tensor_product_test_utils import run_tensor_product_comparison
 
 jax.config.update('jax_enable_x64', True)
 
@@ -29,7 +19,7 @@ def _build_flax_apply(
     weight_numel: int,
     shared_weights: bool,
     internal_weights: bool,
-    instructions: Optional[List[tuple[int, int, int, str, bool, float]]],
+    instructions: list[tuple[int, int, int, str, bool, float]] | None,
 ):
     module = TensorProductFlax(
         irreps1_o3,
@@ -84,132 +74,6 @@ def _build_flax_apply(
     return apply_fn
 
 
-class TensorProductCuet:
-    """Wrapper around o3.TensorProduct/cuet.ChannelwiseTensorProduct/oeq.TensorProduct followed by a scatter sum"""
-
-    def __new__(
-        cls,
-        irreps_in1: o3.Irreps,
-        irreps_in2: o3.Irreps,
-        irreps_out: o3.Irreps,
-        instructions: Optional[List] = None,
-        shared_weights: bool = False,
-        internal_weights: bool = False,
-        cueq_config: Optional[CuEquivarianceConfig] = None,
-        oeq_config: Optional[OEQConfig] = None,
-    ):
-        cueq_config = CuEquivarianceConfig(enabled=True, optimize_channelwise=True)
-
-        return cuet.ChannelWiseTensorProduct(
-            cue.Irreps(cueq_config.group, irreps_in1),
-            cue.Irreps(cueq_config.group, irreps_in2),
-            cue.Irreps(cueq_config.group, irreps_out),
-            layout=cueq_config.layout,
-            shared_weights=shared_weights,
-            internal_weights=internal_weights,
-        )
-
-
-def compare_once(
-    irreps1: str,
-    irreps2: str,
-    irreps_target: str,
-    *,
-    shared_weights: bool,
-    internal_weights: bool,
-    batch: int = 8,
-) -> float:
-    if internal_weights and not shared_weights:
-        raise ValueError('internal_weights=True requires shared_weights=True')
-    irreps1_o3 = o3.Irreps(irreps1)
-    irreps2_o3 = o3.Irreps(irreps2)
-    target_o3, instructions = tp_out_irreps_with_instructions(
-        irreps1_o3, irreps2_o3, o3.Irreps(irreps_target)
-    )
-
-    tp_e3nn = o3.TensorProduct(
-        irreps1_o3,
-        irreps2_o3,
-        target_o3,
-        instructions=instructions,
-        shared_weights=shared_weights,
-        internal_weights=internal_weights,
-    )
-    tp_cue = TensorProductCuet(
-        irreps1_o3,
-        irreps2_o3,
-        target_o3,
-        instructions=instructions,
-        shared_weights=shared_weights,
-        internal_weights=internal_weights,
-    )
-
-    assert isinstance(tp_cue, cuet.ChannelWiseTensorProduct), 'cuet path not selected'
-
-    flax_apply = _build_flax_apply(
-        irreps1_o3,
-        irreps2_o3,
-        target_o3,
-        tp_e3nn.weight_numel,
-        shared_weights=shared_weights,
-        internal_weights=internal_weights,
-        instructions=instructions,
-    )
-
-    torch.manual_seed(0)
-    x1 = torch.randn(batch, irreps1_o3.dim)
-    x2 = torch.randn(batch, irreps2_o3.dim)
-
-    if internal_weights:
-        base_weights = tp_e3nn.weight.detach().clone()
-        weight_tensor = base_weights.view(1, -1)
-        with torch.no_grad():
-            if tp_cue.weight is None:
-                raise RuntimeError('cuet module missing internal weight tensor')
-            tp_cue.weight.copy_(weight_tensor)
-        weights_arg_e3nn = None
-        weights_arg_cue = None
-    elif shared_weights:
-        base_weights = torch.randn(1, tp_e3nn.weight_numel)
-        weights_arg_e3nn = base_weights.view(-1)
-        weights_arg_cue = base_weights
-        weight_tensor = base_weights
-    else:
-        base_weights = torch.randn(batch, tp_e3nn.weight_numel)
-        weights_arg_e3nn = base_weights
-        weights_arg_cue = base_weights
-        weight_tensor = base_weights
-
-    x1_jax = jnp.asarray(x1.detach().cpu().numpy())
-    x2_jax = jnp.asarray(x2.detach().cpu().numpy())
-    weights_jax = None
-    if not internal_weights:
-        weights_jax = jnp.asarray(weight_tensor.detach().cpu().numpy())
-
-    if weights_arg_e3nn is None:
-        out_e3nn = tp_e3nn(x1, x2)
-    else:
-        out_e3nn = tp_e3nn(x1, x2, weights_arg_e3nn)
-
-    if weights_arg_cue is None:
-        out_cue = tp_cue(x1, x2)
-    else:
-        out_cue = tp_cue(x1, x2, weights_arg_cue)
-
-    out_flax = flax_apply(
-        x1_jax,
-        x2_jax,
-        weight_tensor.detach().cpu().numpy() if internal_weights else weights_jax,
-    )
-    out_flax = torch.from_numpy(np.array(out_flax, copy=True))
-
-    diff_cuet = (out_e3nn - out_cue).abs().max().item()
-    diff_flax = (out_e3nn - out_flax).abs().max().item()
-    diff_cross = (out_cue - out_flax).abs().max().item()
-
-    return max(diff_cuet, diff_flax, diff_cross)
-
-
 TENSOR_PRODUCT_CASES = [
     ('2x0e + 1x1o', '1x0e + 1x1o', '3x0e + 3x1o + 1x2e'),
     ('3x1e', '1x0e + 1x1e + 1x2e', '3x0e + 6x1e + 3x2e'),
@@ -237,7 +101,8 @@ class TestFlaxTensorProduct:
     def test_tensor_product_agreement(
         self, irreps1, irreps2, irreps_target, shared_weights, internal_weights
     ):
-        diff = compare_once(
+        diff = run_tensor_product_comparison(
+            _build_flax_apply,
             irreps1,
             irreps2,
             irreps_target,
