@@ -1,51 +1,80 @@
 # cuequivariance-adapter
 
-This package provides Haiku/JAX wrappers that expose cuequivariance-backed
-operations (linear layers, channel-wise tensor products, fully connected tensor
-products) behind familiar e3nn-style interfaces.  Each adapter mirrors the
-signature and layout conventions of the corresponding :mod:`e3nn.o3` module,
-allowing existing e3nn pipelines to swap in cuequivariance implementations with
-minimal code changes.
+This package exposes cuequivariance-backed operations through both **Flax** and
+**Haiku** modules with APIs that match the equivalent `e3nn.o3` components. By
+swapping the original e3nn classes for these adapters you obtain the JAX based
+cue implementations while keeping the familiar `mul_ir` layout and weight
+semantics.
 
-## Features
+## What’s included?
 
-- **Linear** – Implements :math:`y = W x` with weights constrained by the
-  Clebsch–Gordan rules.  Inputs/outputs are kept in e3nn's ``mul_ir`` layout,
-  while cuequivariance performs the segmented-polynomial evaluation under the
-  hood.
-- **TensorProduct** – Channel-wise tensor product matching
-  :class:`e3nn.o3.TensorProduct` (``'uvu'`` instructions).  Multiplicity handling
-  and weight semantics follow e3nn conventions; cue handles the heavy lifting in
-  ``ir_mul`` layout.
-- **FullyConnectedTensorProduct** – Exhaustively mixes input multiplicities just
-  like :class:`e3nn.o3.FullyConnectedTensorProduct`, delegating the computation
-  to cue while preserving the e3nn UX.
-- **SymmetricContraction** – Implements the species-dependent symmetric
-  contraction used in MACE with the option to operate in the reduced CG basis or
-  emulate the original formulation.
+- **Linear** – Layout-preserving linear map with optional shared or internal
+  weights.
+- **TensorProduct** – Channel-wise tensor product (``'uvu'`` instructions) that
+  collapses cue’s expanded multiplicity axes back to the e3nn layout.
+- **FullyConnectedTensorProduct** – Fully connected tensor product mirroring the
+  behaviour of `e3nn.o3.FullyConnectedTensorProduct`.
+- **SymmetricContraction** – Implementation of the MACE-style symmetric
+  contraction supporting both the reduced and original CG bases.
 
-The adapters convert between the layout conventions automatically, collapse the
-extra multiplicity axes introduced by cue descriptors, normalise results to
-match e3nn, and manage shared or internal weights the way e3nn users expect.
+Each adapter has a Flax module (``cuequivariance_adapter.flax``) and a Haiku
+module (``cuequivariance_adapter.haiku``) with matching signatures. Under the
+hood we convert between ``mul_ir`` and cue’s ``ir_mul`` layout, reshape and
+normalise outputs, and delegate the segmented-polynomial evaluation to
+`cuequivariance-jax`.
 
 ## Installation
+
+We recommend creating a fresh virtual environment with JAX, Flax, Haiku and the
+cue libraries. After cloning this repository run:
 
 ```bash
 pip install -e .
 ```
 
-Ensure the required dependencies listed in ``pyproject.toml`` (including
-``cuequivariance`` and ``cuequivariance-jax``) are available in your environment.
+This installs the adapters in editable mode using the dependency versions
+specified in `pyproject.toml`. The test suite also requires PyTorch,
+`cuequivariance-torch`, and `e3nn` for cross-checks.
+
+## Quick usage examples
+
+### Flax
+
+```python
+from e3nn import o3
+from cuequivariance_adapter.flax import Linear
+
+linear = Linear(o3.Irreps('2x0e + 1x1o'), o3.Irreps('3x0e'))
+params = linear.init(jax.random.PRNGKey(0), jnp.zeros((4, linear.irreps_in.dim)))
+out = linear.apply(params, jnp.ones((4, linear.irreps_in.dim)))
+```
+
+### Haiku
+
+```python
+import haiku as hk
+from e3nn import o3
+from cuequivariance_adapter.haiku import TensorProduct
+
+def forward(x1, x2):
+    tp = TensorProduct(o3.Irreps('1x0e + 1x1o'), o3.Irreps('1x0e'), o3.Irreps('2x0e'))
+    return tp(x1, x2)
+
+apply_fn = hk.transform(forward).apply
+```
 
 ## Running the tests
 
-Tests compare the adapters against the PyTorch e3nn and cuequivariance-torch
-implementations to guarantee numerical parity.
+The tests compare each adapter against the e3nn reference implementation and
+the equivalent cuequivariance/PyTorch adapter to guarantee numerical agreement.
 
 ```bash
-python -m pytest
+pytest
 ```
+
+The tests emit a few deprecation warnings from Haiku/JAX in some configurations;
+these are harmless and can be ignored.
 
 ## License
 
-This project is distributed under the MIT License.  See ``LICENSE`` for details.
+This project is distributed under the MIT License. See `LICENSE` for details.
