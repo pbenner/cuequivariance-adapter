@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import cuequivariance as cue
 import cuequivariance_jax as cuex
-import haiku as hk
 import jax
 import jax.numpy as jnp
 from cuequivariance.group_theory.experimental.mace.symmetric_contractions import (
     symmetric_contraction as cue_mace_symmetric_contraction,
 )
 from e3nn_jax import Irreps  # type: ignore
+
+import haiku as hk
 
 from .utility import ir_mul_to_mul_ir
 
