@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 from e3nn_jax import Irreps  # type: ignore
+
 import haiku as hk
 
 from .._core import SymmetricContractionCore

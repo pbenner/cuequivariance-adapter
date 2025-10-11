@@ -8,8 +8,8 @@ from mace.modules.wrapper_ops import CuEquivarianceConfig
 from mace.modules.wrapper_ops import Linear as LinearWrapper
 
 from cuequivariance_adapter.flax.linear import Linear as LinearFlax
-from tests._linear_test_utils import run_linear_comparison
 from tests._flax_builder_utils import resolve_flax_weights
+from tests._linear_test_utils import run_linear_comparison
 
 jax.config.update('jax_enable_x64', True)
 

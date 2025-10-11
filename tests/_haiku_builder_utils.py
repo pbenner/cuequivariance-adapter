@@ -39,7 +39,9 @@ def resolve_haiku_weights(
             weight_array = weight_array[jnp.newaxis, :]
         elif weight_array.ndim == 2:
             if weight_array.shape[0] != 1:
-                raise ValueError('Internal weights expect a single shared weight vector')
+                raise ValueError(
+                    'Internal weights expect a single shared weight vector'
+                )
             weight_array = weight_array[:1]
         else:
             raise ValueError('Internal weights must have rank 1 or 2')

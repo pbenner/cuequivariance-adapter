@@ -9,9 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import torch
 from e3nn import o3
-
 from mace.modules.wrapper_ops import Linear as LinearWrapper
-
 
 LinearApply = Callable[
     [o3.Irreps, o3.Irreps, int, bool, bool],

@@ -159,7 +159,9 @@ def build_flax_symmetric_adapter(
     def set_weights(weights: np.ndarray) -> None:
         nonlocal params
         mutable = unfreeze(params)
-        mutable['params']['weight'] = jnp.asarray(weights, dtype=mutable['params']['weight'].dtype)
+        mutable['params']['weight'] = jnp.asarray(
+            weights, dtype=mutable['params']['weight'].dtype
+        )
         params = freeze(mutable)
 
     def apply(x_features: np.ndarray, selector: np.ndarray) -> np.ndarray:

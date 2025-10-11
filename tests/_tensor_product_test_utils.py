@@ -14,7 +14,6 @@ from e3nn import o3  # type: ignore
 from mace.modules.irreps_tools import tp_out_irreps_with_instructions  # type: ignore
 from mace.modules.wrapper_ops import CuEquivarianceConfig  # type: ignore
 
-
 TensorApply = Callable[
     [
         o3.Irreps,
@@ -25,7 +24,10 @@ TensorApply = Callable[
         bool,
         Optional[list[tuple[int, int, int, str, bool, float]]],
     ],
-    Callable[[jnp.ndarray, jnp.ndarray, Optional[np.ndarray | jnp.ndarray]], np.ndarray | jnp.ndarray],
+    Callable[
+        [jnp.ndarray, jnp.ndarray, Optional[np.ndarray | jnp.ndarray]],
+        np.ndarray | jnp.ndarray,
+    ],
 ]
 
 
@@ -123,7 +125,9 @@ def run_tensor_product_comparison(
     x1_jax = jnp.asarray(x1.detach().cpu().numpy())
     x2_jax = jnp.asarray(x2.detach().cpu().numpy())
     if internal_weights:
-        weights_payload: Optional[np.ndarray | jnp.ndarray] = weight_tensor.detach().cpu().numpy()
+        weights_payload: Optional[np.ndarray | jnp.ndarray] = (
+            weight_tensor.detach().cpu().numpy()
+        )
     else:
         weights_payload = jnp.asarray(weight_tensor.detach().cpu().numpy())
 
