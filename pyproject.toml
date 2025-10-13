@@ -6,7 +6,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cuequivariance-adapter"
+name = "cueq-e3nn-jax-adapter"
 version = "0.1.0"
 description = "Cuequivariance-backed layers."
 authors = [
@@ -44,8 +44,8 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = [
-    "cuequivariance_adapter",
-    "cuequivariance_adapter.*",
+    "cueq_e3nn_jax_adapter",
+    "cueq_e3nn_jax_adapter.*",
 ]
 
 # Make isort compatible with black

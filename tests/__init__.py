@@ -1,4 +1,4 @@
-"""Test utilities package for cuequivariance adapter."""
+"""Test utilities package for cueq-e3nn-jax adapter."""
 
 import pytest
 

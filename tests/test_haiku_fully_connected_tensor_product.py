@@ -5,7 +5,7 @@ import pytest
 from e3nn import o3
 from e3nn_jax import Irreps
 
-from cuequivariance_adapter.haiku.fully_connected_tensor_product import (
+from cueq_e3nn_jax_adapter.haiku.fully_connected_tensor_product import (
     FullyConnectedTensorProduct as FullyConnectedTensorProductCuex,
 )
 from tests._fully_connected_test_utils import run_fully_connected_comparison

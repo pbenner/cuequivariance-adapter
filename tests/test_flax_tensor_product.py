@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import pytest
 from e3nn import o3  # type: ignore
 
-from cuequivariance_adapter.flax.tensor_product import (
+from cueq_e3nn_jax_adapter.flax.tensor_product import (
     TensorProduct as TensorProductFlax,
 )
 from tests._flax_builder_utils import resolve_flax_weights

@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import pytest
 from e3nn import o3  # type: ignore
 
-from cuequivariance_adapter.haiku.tensor_product import (
+from cueq_e3nn_jax_adapter.haiku.tensor_product import (
     TensorProduct as TensorProductCuex,
 )
 from tests._haiku_builder_utils import find_weight_parameter, resolve_haiku_weights

@@ -1,4 +1,4 @@
-# cuequivariance-adapter
+# cueq-e3nn-jax-adapter
 
 This package exposes cuequivariance-backed operations through both **Flax** and
 **Haiku** modules with APIs that match the equivalent `e3nn.o3` components. By
@@ -17,8 +17,8 @@ semantics.
 - **SymmetricContraction** – Implementation of the MACE-style symmetric
   contraction supporting both the reduced and original CG bases.
 
-Each adapter has a Flax module (``cuequivariance_adapter.flax``) and a Haiku
-module (``cuequivariance_adapter.haiku``) with matching signatures. Under the
+Each adapter has a Flax module (``cueq_e3nn_jax_adapter.flax``) and a Haiku
+module (``cueq_e3nn_jax_adapter.haiku``) with matching signatures. Under the
 hood we convert between ``mul_ir`` and cue’s ``ir_mul`` layout, reshape and
 normalise outputs, and delegate the segmented-polynomial evaluation to
 `cuequivariance-jax`.
@@ -42,7 +42,7 @@ specified in `pyproject.toml`. The test suite also requires PyTorch,
 
 ```python
 from e3nn import o3
-from cuequivariance_adapter.flax import Linear
+from cueq_e3nn_jax_adapter.flax import Linear
 
 linear = Linear(o3.Irreps('2x0e + 1x1o'), o3.Irreps('3x0e'))
 params = linear.init(jax.random.PRNGKey(0), jnp.zeros((4, linear.irreps_in.dim)))
@@ -54,7 +54,7 @@ out = linear.apply(params, jnp.ones((4, linear.irreps_in.dim)))
 ```python
 import haiku as hk
 from e3nn import o3
-from cuequivariance_adapter.haiku import TensorProduct
+from cueq_e3nn_jax_adapter.haiku import TensorProduct
 
 def forward(x1, x2):
     tp = TensorProduct(o3.Irreps('1x0e + 1x1o'), o3.Irreps('1x0e'), o3.Irreps('2x0e'))

@@ -4,7 +4,7 @@ import pytest
 from e3nn import o3
 from e3nn_jax import Irreps
 
-from cuequivariance_adapter.flax.fully_connected_tensor_product import (
+from cueq_e3nn_jax_adapter.flax.fully_connected_tensor_product import (
     FullyConnectedTensorProduct as FullyConnectedTensorProductFlax,
 )
 from tests._flax_builder_utils import resolve_flax_weights

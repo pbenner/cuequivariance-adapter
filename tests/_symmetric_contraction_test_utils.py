@@ -139,7 +139,7 @@ def build_flax_symmetric_adapter(
 ) -> SymmetricAdapterHandle:
     from flax.core import freeze, unfreeze  # type: ignore
 
-    from cuequivariance_adapter.flax.symmetric_contraction import SymmetricContraction
+    from cueq_e3nn_jax_adapter.flax.symmetric_contraction import SymmetricContraction
 
     module = SymmetricContraction(
         Irreps(irreps_in),
@@ -186,7 +186,7 @@ def build_haiku_symmetric_adapter(
     num_elements: int,
     use_reduced_cg: bool,
 ) -> SymmetricAdapterHandle:
-    from cuequivariance_adapter.haiku.symmetric_contraction import SymmetricContraction
+    from cueq_e3nn_jax_adapter.haiku.symmetric_contraction import SymmetricContraction
 
     info: dict[str, object] = {}
 

@@ -8,7 +8,7 @@ from e3nn_jax import Irreps
 from mace.modules.wrapper_ops import CuEquivarianceConfig
 from mace.modules.wrapper_ops import Linear as LinearWrapper
 
-from cuequivariance_adapter.haiku.linear import Linear as LinearCuex
+from cueq_e3nn_jax_adapter.haiku.linear import Linear as LinearCuex
 from tests._haiku_builder_utils import find_weight_parameter, resolve_haiku_weights
 from tests._linear_test_utils import run_linear_comparison
 
