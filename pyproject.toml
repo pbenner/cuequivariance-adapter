@@ -44,7 +44,12 @@ haiku = [
     "dm-haiku>=0.0.12",
 ]
 test = [
-    "e3nn>=0.5.0",
+    "e3nn<0.5",
+    "flax>=0.7.5",
+    "dm-haiku>=0.0.12",
+    "mace-torch",
+    "cuequivariance-torch",
+    "pytest",
 ]
 
 # Make isort compatible with black

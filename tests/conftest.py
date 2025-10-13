@@ -2,15 +2,65 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
-from pathlib import Path
-
-# Ensure the tests directory is importable whether pytest runs from repo root or tests/
-_THIS_DIR = Path(__file__).resolve().parent
-if str(_THIS_DIR) not in sys.path:
-    sys.path.insert(0, str(_THIS_DIR))
+import types
 
 import warnings
+
+
+def _ensure_mosaic_profiler_stub() -> None:
+    """Provide a stub mosaic profiler when running on systems without GPU support."""
+
+    try:
+        profiler_mod = importlib.import_module('jax.experimental.mosaic.gpu.profiler')
+    except ImportError:
+        profiler_mod = None
+    else:
+        if not hasattr(profiler_mod, '_event_record'):
+            def _event_record(state, copy_before=True):
+                return None, state
+
+            profiler_mod._event_record = _event_record  # type: ignore[attr-defined]
+        if not hasattr(profiler_mod, '_event_elapsed'):
+            def _event_elapsed(start_event, end_event):
+                return 0.0
+
+            profiler_mod._event_elapsed = _event_elapsed  # type: ignore[attr-defined]
+        return
+
+    profiler_mod = types.ModuleType('jax.experimental.mosaic.gpu.profiler')
+
+    def _event_record(state, copy_before=True):
+        return None, state
+
+    def _event_elapsed(start_event, end_event):
+        return 0.0
+
+    profiler_mod._event_record = _event_record  # type: ignore[attr-defined]
+    profiler_mod._event_elapsed = _event_elapsed  # type: ignore[attr-defined]
+
+    gpu_mod = types.ModuleType('jax.experimental.mosaic.gpu')
+    gpu_mod.profiler = profiler_mod  # type: ignore[attr-defined]
+
+    experimental_mod = sys.modules.get('jax.experimental')
+    if experimental_mod is None:
+        experimental_mod = types.ModuleType('jax.experimental')
+        sys.modules['jax.experimental'] = experimental_mod
+
+    mosaic_mod = getattr(experimental_mod, 'mosaic', None)
+    if mosaic_mod is None:
+        mosaic_mod = types.ModuleType('jax.experimental.mosaic')
+        experimental_mod.mosaic = mosaic_mod  # type: ignore[attr-defined]
+
+    mosaic_mod.gpu = gpu_mod  # type: ignore[attr-defined]
+
+    sys.modules['jax.experimental.mosaic'] = mosaic_mod
+    sys.modules['jax.experimental.mosaic.gpu'] = gpu_mod
+    sys.modules['jax.experimental.mosaic.gpu.profiler'] = profiler_mod
+
+
+_ensure_mosaic_profiler_stub()
 
 _WARNING_FILTERS: list[dict[str, object]] = [
     {'category': DeprecationWarning, 'module': 'haiku'},
@@ -59,7 +109,7 @@ def _apply_warning_filters() -> None:
 _apply_warning_filters()
 
 # Importing applies the ChannelWiseTensorProduct patch for cuequivariance_torch.
-import _torch_patch  # type: ignore  # noqa: F401
+from . import _torch_patch  # type: ignore  # noqa: F401
 import torch
 from jax import config as jax_config
 
