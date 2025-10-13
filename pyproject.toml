@@ -23,29 +23,28 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "chex",
-    "optax",
     "e3nn_jax",
     "numpy",
-    "ase",
-    "matscipy",
-    "roundmantissa",
-    "jraph",
     "jax>=0.4.23",
     "cuequivariance",
     "cuequivariance-jax",
-    "dm-haiku",
-    "gin-config",
-    "unique_names_generator",
-    "tqdm",
-    "matplotlib",
-    "pandas",
 ]
 
 [tool.setuptools.packages.find]
 include = [
     "cueq_e3nn_jax_adapter",
     "cueq_e3nn_jax_adapter.*",
+]
+
+[project.optional-dependencies]
+flax = [
+    "flax>=0.7.5",
+]
+haiku = [
+    "dm-haiku>=0.0.12",
+]
+test = [
+    "e3nn>=0.5.0",
 ]
 
 # Make isort compatible with black
